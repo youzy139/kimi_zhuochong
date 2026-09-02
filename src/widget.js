@@ -302,6 +302,20 @@ var r4 = menuRow(); r4.appendChild(menuLabel('数据源')); r4.appendChild(sourc
 var r5 = menuRow(); r5.appendChild(menuLabel('周额度上限')); r5.appendChild(quotaInput)
 var r6 = menuRow(); r6.appendChild(menuLabel('5h 告警阈值')); r6.appendChild(warnInput)
 var sep = document.createElement('div'); sep.className = 'krw-menu-sep'
+// 退出行：无边框窗口没有标题栏关闭按钮，菜单里给一个显式出口（托盘也可退出）
+var quitBtn = document.createElement('button')
+quitBtn.type = 'button'
+quitBtn.className = 'krw-sound'
+quitBtn.textContent = '退出挂件'
+quitBtn.title = '关闭月兔娘（也可右键托盘图标退出）'
+quitBtn.addEventListener('click', function () {
+  if (isTauri) {
+    try { window.__TAURI__.window.getCurrentWindow().close() } catch (err) {}
+  } else {
+    document.body.innerHTML = '<div style="color:#9a8fd0;font:14px sans-serif;padding:20px">mock 模式：请直接关掉这个标签页</div>'
+  }
+})
+var r7 = menuRow(); r7.appendChild(quitBtn)
 menuBox.appendChild(r1)
 menuBox.appendChild(r2)
 menuBox.appendChild(r3)
@@ -310,6 +324,7 @@ menuBox.appendChild(r5)
 menuBox.appendChild(r6)
 menuBox.appendChild(sep)
 menuBox.appendChild(fuelRow)
+menuBox.appendChild(r7)
 document.body.appendChild(menuBox)
 
 // ---------- 状态 ----------
@@ -538,7 +553,7 @@ function setWarnTokens(v) {
   refresh(false)
 }
 
-// ---------- 音效（无 mp3 素材：加载失败静默，永不报错） ----------
+// ---------- 音效（assets/press.mp3 / release.mp3 为原项目小黄鸭音效，加载失败静默） ----------
 var SQUISH = 'scaleY(0.88) scaleX(1.05)'
 var pressAudio = null
 var releaseAudio = null
@@ -955,22 +970,38 @@ function closeMenu() {
 }
 function positionMenu() {
   try {
-    var r = root.getBoundingClientRect()
     var b = menuBtn.getBoundingClientRect()
     var onLeft = state.h === 'left'
-    // 菜单出现在按钮上方，贴角色所在一侧
-    if (onLeft) {
-      menuBox.style.left = b.left + 'px'
-      menuBox.style.right = 'auto'
-      menuBox.style.transformOrigin = 'bottom left'
-    } else {
-      menuBox.style.right = Math.max(0, (isTauri ? rootSize() : (window.innerWidth || 1280)) - b.right) + 'px'
-      menuBox.style.left = 'auto'
-      menuBox.style.transformOrigin = 'bottom right'
-    }
+    // 窗口尺寸：Tauri 下窗口就是挂件本身（可能只有 200px），mock 下用视口
+    var vw = isTauri ? rootSize() : (window.innerWidth || 1280)
     var vh = isTauri ? rootSize() : (window.innerHeight || 800)
-    menuBox.style.bottom = Math.max(0, vh - b.top) + 'px'
-    menuBox.style.top = 'auto'
+    // 横向：窗口可能比菜单最小宽度还窄，同步收窄并允许横向滚动
+    var maxW = Math.max(0, vw - 8)
+    menuBox.style.minWidth = Math.min(210, maxW) + 'px'
+    menuBox.style.maxWidth = maxW + 'px'
+    // 纵向：按钮上方空间够就向上展开；不够就从窗口顶部向下展开
+    // （盖住角色无妨，总比被窗口裁掉强），内容超出可滚动
+    var need = menuBox.scrollHeight || 300
+    var openUp = b.top >= Math.min(need, vh - 8) + 8
+    if (openUp) {
+      menuBox.style.bottom = Math.max(0, vh - b.top) + 'px'
+      menuBox.style.top = 'auto'
+      menuBox.style.maxHeight = ''
+    } else {
+      menuBox.style.top = '4px'
+      menuBox.style.bottom = 'auto'
+      menuBox.style.maxHeight = Math.max(0, vh - 8) + 'px'
+    }
+    // 贴角色所在一侧
+    if (onLeft) {
+      menuBox.style.left = Math.max(4, b.left) + 'px'
+      menuBox.style.right = 'auto'
+      menuBox.style.transformOrigin = (openUp ? 'bottom' : 'top') + ' left'
+    } else {
+      menuBox.style.right = Math.max(4, vw - b.right) + 'px'
+      menuBox.style.left = 'auto'
+      menuBox.style.transformOrigin = (openUp ? 'bottom' : 'top') + ' right'
+    }
   } catch (err) {}
 }
 

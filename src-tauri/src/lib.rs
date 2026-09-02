@@ -66,6 +66,24 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(AppState::new()))
         .invoke_handler(tauri::generate_handler![get_usage, get_config, set_config])
+        .setup(|app| {
+            // 系统托盘：无边框+跳过任务栏的窗口没有别的关闭入口，托盘是唯一的退出通道
+            use tauri::menu::{MenuBuilder, MenuItemBuilder};
+            use tauri::tray::TrayIconBuilder;
+            let quit = MenuItemBuilder::with_id("quit", "退出月兔娘").build(app)?;
+            let menu = MenuBuilder::new(app).item(&quit).build()?;
+            let mut tray = TrayIconBuilder::with_id("main-tray").menu(&menu).tooltip("月兔娘 · Kimi 额度");
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.on_menu_event(|app, event| {
+                if event.id().as_ref() == "quit" {
+                    app.exit(0);
+                }
+            })
+            .build(app)?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
