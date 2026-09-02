@@ -30,8 +30,8 @@
 - Windows 10/11（系统自带 WebView2 运行时；过旧系统需安装 [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)）
 
 ```bash
-git clone https://github.com/<你的用户名>/kimi-rabbit-widget.git
-cd kimi-rabbit-widget
+git clone https://github.com/youzy139/kimi_zhuochong.git
+cd kimi_zhuochong
 npm install
 npm run dev      # 开发模式运行（带热重载）
 npm run build    # 产出安装包（src-tauri/target/release/bundle/）

@@ -10,7 +10,7 @@ CLI /usage 解析增强，自动降级」。** 不要再重新发起选型讨论
 
 仓库结构：
 
-- `readme.md` —— 原始需求规格书（新需求以它为准）
+- `需求规格书.md` —— 原始需求规格书（原 readme.md，因 Windows 文件名大小写不敏感与交付 README 冲突而改名）（新需求以它为准）
 - `README.md` —— 交付用中文说明文档
 - `src/` —— 挂件前端（`index.html` + `widget.js`，原生 JS 无构建步骤，
   由 Tauri 直接静态托管；`src/assets/rabbit.png` 为月兔娘素材）
@@ -37,7 +37,7 @@ CLI /usage 解析增强，自动降级」。** 不要再重新发起选型讨论
 （MIT 协议）做一个「月兔娘」桌面悬浮窗挂件，常驻屏幕右下角，监控用户的
 Kimi Coding Plan 额度。
 
-背景知识（readme.md 明确给出，不要重新假设）：
+背景知识（需求规格书.md 明确给出，不要重新假设）：
 
 - Kimi Coding Plan 是订阅制：额度每 7 天自动刷新，未用完不累积
 - 另有每 5 小时的滚动频率窗口，短时间请求过多会限流
@@ -49,7 +49,7 @@ Kimi Coding Plan 额度。
 
 ## 既定工作流程约束
 
-readme.md 规定了四步流程，代理必须遵守：
+需求规格书.md 规定了四步流程，代理必须遵守：
 
 1. **调研**：读参考仓库（README.md、lib/index.js、whale-widget-prompt.md），
    梳理功能清单；调研 Kimi 额度数据获取途径
