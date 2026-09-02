@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "main 窗口默认权限",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-start-dragging",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-set-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-close"
+  ]
+}

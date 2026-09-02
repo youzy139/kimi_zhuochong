@@ -1,0 +1,13 @@
+{
+  "name": "kimi-rabbit-widget",
+  "version": "0.1.0",
+  "private": true,
+  "description": "月兔娘 · Kimi Coding Plan 额度桌面挂件",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

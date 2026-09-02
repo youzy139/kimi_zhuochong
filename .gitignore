@@ -1,0 +1,18 @@
+# 依赖与构建产物
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+
+# 本地配置与敏感信息（令牌、额度数据一律不入库）
+*.token
+*.secret
+config.local.json
+usage-ledger.json
+.kimi-rabbit/
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+
+# 探针抓取输出（含个人额度数据）
+probe_usage_output.txt
