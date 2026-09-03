@@ -18,8 +18,12 @@ pub struct Config {
     pub scale: f64,
     pub volume: f64,
     pub sound_on: bool,
+    /// "duck"（小黄鸭 Ya1/Ya2）| "fx1"（音效1 D1/D2）
+    pub sound_set: String,
     pub bubble_on: bool,
     pub turn_cost_on: bool,
+    /// 每轮消耗泡泡自动关闭毫秒数，0 = 不自动关闭
+    pub turn_cost_close_ms: u64,
     /// "auto" | "ledger" | "cli"
     pub data_source: String,
     pub weekly_quota_tokens: Option<u64>,
@@ -35,8 +39,10 @@ impl Default for Config {
             scale: 1.5,
             volume: 0.9,
             sound_on: true,
+            sound_set: "duck".to_string(),
             bubble_on: true,
             turn_cost_on: true,
+            turn_cost_close_ms: 5000,
             data_source: "auto".to_string(),
             weekly_quota_tokens: None,
             window5h_warn_tokens: None,
@@ -157,8 +163,8 @@ mod tests {
         let v = serde_json::to_value(&c).unwrap();
         let obj = v.as_object().unwrap();
         for key in [
-            "scale", "volume", "sound_on", "bubble_on", "turn_cost_on",
-            "data_source", "weekly_quota_tokens", "window5h_warn_tokens", "pos",
+            "scale", "volume", "sound_on", "sound_set", "bubble_on", "turn_cost_on",
+            "turn_cost_close_ms", "data_source", "weekly_quota_tokens", "window5h_warn_tokens", "pos",
         ] {
             assert!(obj.contains_key(key), "缺少字段 {key}");
         }

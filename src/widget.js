@@ -25,9 +25,9 @@ var REFRESH_MS = 60000       // 自动刷新间隔
 var CHANGE_MS = 900
 var ANIM_MS = 700            // 数字滚动时长
 var BUBBLE_MS = 5000         // 气泡自动收起
-var COST_BUBBLE_MS = 5000    // 每轮消耗泡泡自动收起
 var SNAP_ANIM_MS = 200       // 吸附滑动动画
 var IMG_URL = 'assets/rabbit.png'
+var GIF_URL = 'assets/rua.gif'   // 随机台词动图（可选素材，缺失时降级为文字台词）
 
 // ---------- 环境检测：Tauri or 浏览器 mock ----------
 var TAURI = window.__TAURI__ || null
@@ -114,6 +114,10 @@ var css = [
   '.krw-bubble .krw-b1{transition-delay:.2s}',
   '.krw-bubble .krw-b2{transition-delay:.3s}',
   '.krw-text{position:absolute;left:44.25%;top:37%;transform:translate(-50%,-50%);text-align:center;color:' + C_TEXT + ';line-height:1.15;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .16s ease,transform .3s ease;font-family:"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei","Segoe UI",sans-serif}',
+  // 随机台词动图：与文字块同锚点，默认隐藏
+  '.krw-gif{position:absolute;left:44.25%;top:37%;transform:translate(-50%,-50%);max-width:calc(var(--krw-u) * 520);max-height:calc(var(--krw-u) * 380);display:none;opacity:0;transition:opacity .2s ease;pointer-events:none;-webkit-user-drag:none;user-select:none;object-fit:contain;border-radius:calc(var(--krw-u) * 24)}',
+  '.krw-bubble.krw-bubble-open .krw-gif{opacity:1}',
+  '.krw-root.krw-left .krw-gif{transform:translate(-50%,-50%) scaleX(-1)}',
   '.krw-bubble.krw-bubble-open .krw-text{opacity:1;transition:opacity .16s ease .36s,transform .3s ease}',
   '.krw-root.krw-left .krw-text{transform:translate(-50%,-50%) scaleX(-1)}',
   '.krw-label{font-size:calc(var(--krw-u) * 46);font-weight:600;letter-spacing:.08em;color:' + C_SUB + '}',
@@ -191,6 +195,15 @@ textBox.appendChild(amountEl)
 textBox.appendChild(barEl)
 textBox.appendChild(hintEl)
 textBox.appendChild(statusEl)
+// 随机台词动图（加载失败时 gifFailed=true，台词组降级为文字）
+var gifEl = document.createElement('img')
+gifEl.className = 'krw-gif'
+gifEl.src = GIF_URL
+gifEl.alt = ''
+gifEl.draggable = false
+var gifFailed = false
+gifEl.addEventListener('error', function () { gifFailed = true })
+bubbleBox.appendChild(gifEl)
 bubbleBox.appendChild(textBox)
 
 var menuBtn = document.createElement('button')
@@ -252,6 +265,12 @@ var volPct = document.createElement('span')
 volPct.className = 'krw-volpct'
 volPct.textContent = '90%'
 volInput.addEventListener('input', function () { setVol(volInput.value) })
+// 音效套装选择（小黄鸭 / 音效1）
+var soundSetSelect = document.createElement('select')
+soundSetSelect.className = 'krw-select'
+soundSetSelect.appendChild(menuOpt('duck', '小黄鸭'))
+soundSetSelect.appendChild(menuOpt('fx1', '音效1'))
+soundSetSelect.addEventListener('change', function () { setSoundSet(soundSetSelect.value) })
 // 气泡 / 每轮消耗开关
 var bubbleToggle = document.createElement('input')
 bubbleToggle.type = 'checkbox'
@@ -265,6 +284,16 @@ turnCostToggle.className = 'krw-check'
 turnCostToggle.checked = true
 turnCostToggle.title = '每轮对话结束后显示本轮 token 消耗'
 turnCostToggle.addEventListener('change', function () { setTurnCostOn(turnCostToggle.checked) })
+// 每轮消耗泡泡自动关闭秒数（0 = 不自动关闭，点击泡泡手动关）
+var turnCostCloseInput = document.createElement('input')
+turnCostCloseInput.type = 'number'
+turnCostCloseInput.min = '0'
+turnCostCloseInput.step = '1'
+turnCostCloseInput.className = 'krw-number'
+turnCostCloseInput.style.width = '44px'
+turnCostCloseInput.value = '5'
+turnCostCloseInput.title = '自动关闭秒数，填 0 表示不自动关闭'
+turnCostCloseInput.addEventListener('change', function () { setTurnCostClose(turnCostCloseInput.value) })
 // 数据源
 var sourceSelect = document.createElement('select')
 sourceSelect.className = 'krw-select'
@@ -296,8 +325,8 @@ fuelRow.appendChild(fuelValue)
 fuelRow.style.display = 'none'
 
 var r1 = menuRow(); r1.appendChild(menuLabel('大小')); r1.appendChild(scaleInput); r1.appendChild(scaleNumber)
-var r2 = menuRow(); r2.appendChild(menuLabel('音效')); r2.appendChild(soundToggle); r2.appendChild(volInput); r2.appendChild(volPct)
-var r3 = menuRow(); r3.appendChild(menuLabel('气泡')); r3.appendChild(bubbleToggle); r3.appendChild(menuLabel('每轮消耗')); r3.appendChild(turnCostToggle)
+var r2 = menuRow(); r2.appendChild(menuLabel('音效')); r2.appendChild(soundToggle); r2.appendChild(soundSetSelect); r2.appendChild(volInput); r2.appendChild(volPct)
+var r3 = menuRow(); r3.appendChild(menuLabel('气泡')); r3.appendChild(bubbleToggle); r3.appendChild(menuLabel('每轮消耗')); r3.appendChild(turnCostToggle); r3.appendChild(turnCostCloseInput); r3.appendChild(menuLabel('秒'))
 var r4 = menuRow(); r4.appendChild(menuLabel('数据源')); r4.appendChild(sourceSelect)
 var r5 = menuRow(); r5.appendChild(menuLabel('周额度上限')); r5.appendChild(quotaInput)
 var r6 = menuRow(); r6.appendChild(menuLabel('5h 告警阈值')); r6.appendChild(warnInput)
@@ -351,6 +380,7 @@ var soundOn = true
 var soundVol = 0.9
 var bubbleOn = true
 var turnCostOn = true
+var turnCostCloseMs = 5000   // 每轮消耗泡泡自动关闭毫秒数，0 = 不自动关闭
 var menuOpen = false
 var winAnimId = null        // Tauri 窗口吸附动画
 
@@ -466,6 +496,8 @@ function applyConfig(d) {
   if (typeof d.sound_on === 'boolean') setSoundOn(d.sound_on, true)
   if (typeof d.bubble_on === 'boolean') setBubbleOn(d.bubble_on, true)
   if (typeof d.turn_cost_on === 'boolean') setTurnCostOn(d.turn_cost_on, true)
+  if (typeof d.turn_cost_close_ms === 'number') setTurnCostClose(d.turn_cost_close_ms / 1000, true)
+  if (typeof d.sound_set === 'string') setSoundSet(d.sound_set, true)
   if (typeof d.data_source === 'string' && /^(auto|ledger|cli)$/.test(d.data_source)) {
     sourceSelect.value = d.data_source
   }
@@ -531,8 +563,16 @@ function setBubbleOn(v, silent) {
 function setTurnCostOn(v, silent) {
   turnCostOn = !!v
   turnCostToggle.checked = turnCostOn
+  turnCostCloseInput.disabled = !turnCostOn
   if (!silent) saveConfig({ turn_cost_on: turnCostOn })
   if (!turnCostOn) hideCostBubble()
+}
+function setTurnCostClose(v, silent) {
+  // 不随开关提前返回：配置恢复时（silent）也要写入秒数，输入框靠 disabled 防误改
+  var n = Math.max(0, Math.round(Number(v) || 0))
+  turnCostCloseMs = n * 1000
+  turnCostCloseInput.value = String(n)
+  if (!silent) saveConfig({ turn_cost_close_ms: turnCostCloseMs })
 }
 function setDataSource(v) {
   var sv = /^(auto|ledger|cli)$/.test(v) ? v : 'auto'
@@ -558,10 +598,17 @@ var SQUISH = 'scaleY(0.88) scaleX(1.05)'
 var pressAudio = null
 var releaseAudio = null
 var soundDead = false
+// 音效套装：duck=小黄鸭（Ya1/Ya2），fx1=音效1（D1/D2），均来自原项目素材
+var SOUND_SETS = {
+  duck: { press: 'assets/Ya1.mp3', release: 'assets/Ya2.mp3' },
+  fx1: { press: 'assets/D1.mp3', release: 'assets/D2.mp3' }
+}
+var soundSet = 'duck'
 function setupSound() {
   try {
-    pressAudio = new Audio('assets/press.mp3')
-    releaseAudio = new Audio('assets/release.mp3')
+    var set = SOUND_SETS[soundSet] || SOUND_SETS.duck
+    pressAudio = new Audio(set.press)
+    releaseAudio = new Audio(set.release)
     pressAudio.preload = 'auto'
     releaseAudio.preload = 'auto'
     pressAudio.volume = soundVol
@@ -578,13 +625,62 @@ function playSound(a) {
     if (p && typeof p.catch === 'function') p.catch(function () {})
   } catch (err) {}
 }
+// 按压/松手时序（对齐原项目）：短按 → 松手音与按压音末尾重叠 100ms；
+// 长按（松手时按压音已播完）→ 松手时立即播松手音。避免同文件抢断叠音
+var pressing = false
+var pressEnded = false
+var releasePlayed = false
+var releaseTimer = null
 function pressDown() {
   body.style.transform = SQUISH
-  playSound(pressAudio)
+  pressing = true
+  if (soundDead || !soundOn || !pressAudio) return
+  try {
+    if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null }
+    if (releaseAudio) { releaseAudio.pause(); releaseAudio.currentTime = 0 }
+    pressEnded = false
+    releasePlayed = false
+    pressAudio.onended = function () {
+      pressEnded = true
+      // 时长未知时的兜底：按压音播完且已松手 → 补播松手音
+      if (!pressing && !releasePlayed) playRelease()
+    }
+    playSound(pressAudio)
+  } catch (err) {}
+}
+function playRelease() {
+  if (releasePlayed) return
+  releasePlayed = true
+  playSound(releaseAudio)
 }
 function pressUp() {
   body.style.transform = 'scaleY(1) scaleX(1)'
-  playSound(releaseAudio)
+  pressing = false
+  if (soundDead || !soundOn || !pressAudio) return
+  if (pressEnded) { playRelease(); return }
+  // 按压音还没播完：让松手音在按压音最后 100ms 切入
+  var durKnown = false
+  var remainMs = 0
+  try {
+    var dur = pressAudio.duration
+    if (isFinite(dur) && dur > 0) {
+      durKnown = true
+      remainMs = (dur - pressAudio.currentTime) * 1000
+    }
+  } catch (err) {}
+  if (durKnown) {
+    releaseTimer = setTimeout(function () {
+      releaseTimer = null
+      playRelease()
+    }, Math.max(0, remainMs - 100))
+  }
+  // 时长未知 → 靠 pressAudio.onended 兜底
+}
+function setSoundSet(v, silent) {
+  soundSet = v === 'fx1' ? 'fx1' : 'duck'
+  soundSetSelect.value = soundSet
+  setupSound()
+  if (!silent) saveConfig({ sound_set: soundSet })
 }
 
 // ---------- 台词（月兔娘人设：住月球暗面、安静、爱读书、熬夜陪写代码） ----------
@@ -660,7 +756,8 @@ function buildRandomGroups() {
   var groups = [
     { w: low ? 20 : 42, lines: buildStatusGroup },
     { w: low ? 6 : 16, lines: function () { return singleCenter('A', pickOne(LINES_CALM), '', true) } },
-    { w: 8, lines: function () { return singleCenter('B', pickOne(['月兔娘...↓', 'Zzz...'])) } }
+    { w: 8, lines: function () { return singleCenter('B', pickOne(['月兔娘...↓', 'Zzz...'])) } },
+    { w: 6, lines: function () { return { gif: true } } }
   ]
   if (low) {
     groups.push({ w: 34, lines: function () { return singleCenter('A', pickOne(LINES_ANXIOUS), '', true) } })
@@ -686,6 +783,18 @@ function applyBubbleLines(lines) {
   // 随机台词段：隐藏进度条与 5h 状态行，只排三行文字
   barEl.style.display = 'none'
   statusEl.style.display = 'none'
+  // gif 台词组：只显示动图；动图素材缺失时降级为文字台词
+  if (lines && lines.gif && !gifFailed) {
+    gifEl.style.display = 'block'
+    labelEl.style.display = 'none'
+    amountEl.style.display = 'none'
+    hintEl.style.display = 'none'
+    return
+  }
+  gifEl.style.display = 'none'
+  if (lines && lines.gif) {
+    lines = singleCenter('A', pickOne(['今天没有动图给你看~', '呜呜，动图走丢了……', '月亮上信号不好，动图加载失败啦']), '', true)
+  }
   var els = [labelEl, amountEl, hintEl]
   for (var i = 0; i < 3; i++) {
     var el = els[i]
@@ -750,6 +859,7 @@ function restoreBubbleLines() {
   hintEl.style.color = ''
   statusEl.style.display = ''
   barEl.style.display = ''
+  gifEl.style.display = 'none'
   render()
 }
 function showBubble() {
@@ -774,6 +884,8 @@ function hideBubble() {
   bubbleRandomLines = null
   bubbleShown = false
   bubbleBox.classList.remove('krw-bubble-open')
+  // gif 靠 opacity 过渡淡出，等动画结束再 display:none
+  setTimeout(function () { if (!bubbleShown) gifEl.style.display = 'none' }, 240)
 }
 bubbleBox.addEventListener('click', function (e) {
   e.stopPropagation()
@@ -803,6 +915,7 @@ function showCostBubble(tokens) {
   lastHintText = null
   barEl.style.display = 'none'
   statusEl.style.display = 'none'
+  gifEl.style.display = 'none'
   labelEl.style.display = ''
   labelEl.className = 'krw-label'
   labelEl.textContent = '上一轮消耗约'
@@ -816,7 +929,7 @@ function showCostBubble(tokens) {
   textBox.style.transition = ''
   textBox.style.opacity = ''
   bubbleBox.classList.add('krw-bubble-open')
-  costBubbleTimer = setTimeout(hideCostBubble, COST_BUBBLE_MS)
+  costBubbleTimer = turnCostCloseMs > 0 ? setTimeout(hideCostBubble, turnCostCloseMs) : null
 }
 function hideCostBubble() {
   if (costBubbleTimer) { clearTimeout(costBubbleTimer); costBubbleTimer = null }
