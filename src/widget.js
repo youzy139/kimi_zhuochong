@@ -27,6 +27,12 @@ var ANIM_MS = 700            // 数字滚动时长
 var BUBBLE_MS = 5000         // 气泡自动收起
 var SNAP_ANIM_MS = 200       // 吸附滑动动画
 var IMG_URL = 'assets/rabbit.png'
+var WINK_URL = 'assets/wink.png'
+var VIDEO_URLS = {
+  happy: 'assets/happy.mp4',      // 开心笑（点击随机互动）
+  reading: 'assets/reading.mp4',  // 读书（待机随机动作）
+  nap: 'assets/nap.mp4'           // 小憩（待机随机动作）
+}
 var GIF_URL = 'assets/rua.gif'   // 随机台词动图（可选素材，缺失时降级为文字台词）
 
 // ---------- 环境检测：Tauri or 浏览器 mock ----------
@@ -100,7 +106,12 @@ var css = [
   '.krw-root.krw-dragging{cursor:grabbing;transition:none}',
   '.krw-body{position:absolute;left:0;top:0;width:100%;height:100%;transform-origin:50% 100%;transition:transform .22s cubic-bezier(.34,1.56,.64,1)}',
   // 角色图：原图为带星空背景的正方形，裁成圆形「月亮徽章」构图，右下角
-  '.krw-img{position:absolute;right:0;bottom:0;width:60%;height:60%;display:block;border-radius:50%;box-shadow:0 0 24px rgba(154,143,208,.35);pointer-events:none;-webkit-user-drag:none;user-select:none;object-fit:cover}',
+  // 角色圆形展示框：所有图层（静态图/wink/视频）都装在里面由容器统一裁圆。
+  // 不直接在 video 上用 border-radius——Chromium 会把播放中的 video 提升为
+  // 独立合成层，圆角会丢失（变回方块），容器 overflow:hidden 才可靠
+  '.krw-charbox{position:absolute;right:0;bottom:0;width:60%;height:60%;border-radius:50%;overflow:hidden;box-shadow:0 0 24px rgba(154,143,208,.35);pointer-events:none}',
+  '.krw-img,.krw-wink,.krw-video{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none;user-select:none;object-fit:cover}',
+  '.krw-wink,.krw-video{display:none}',
   '.krw-bubble{position:absolute;left:0;top:0;width:100%;aspect-ratio:1026/700;pointer-events:none;z-index:1;--krw-u:calc(' + BASE_PX + 'px * var(--krw-scale) / 1026)}',
   '.krw-bubble svg{display:block;width:100%;height:100%;pointer-events:none}',
   '.krw-bubble svg path,.krw-bubble svg ellipse{pointer-events:none;cursor:pointer}',
@@ -169,6 +180,23 @@ img.src = IMG_URL
 img.alt = '月兔娘'
 img.draggable = false
 
+// wink 表情（点击互动时短暂盖住主图）
+var winkImg = document.createElement('img')
+winkImg.className = 'krw-wink'
+winkImg.src = WINK_URL
+winkImg.alt = ''
+winkImg.draggable = false
+
+// 互动/待机视频层（开心笑 / 读书 / 小憩，复用同一个 video 元素切 src）
+var videoEl = document.createElement('video')
+videoEl.className = 'krw-video'
+videoEl.muted = true            // 静音才能自动播放
+videoEl.loop = true
+videoEl.playsInline = true
+videoEl.preload = 'auto'
+var videoDead = false
+videoEl.addEventListener('error', function () { videoDead = true })
+
 // 气泡 SVG：沿用鲸鱼项目的几何（viewBox 1026×700，大椭圆+尾巴+两小气泡），
 // 仅换色为暗夜蓝紫底 + 深紫蓝描边
 var bubbleBox = document.createElement('div')
@@ -218,7 +246,12 @@ menuBtn.title = '菜单'
 menuBtn.innerHTML = '<span></span><span></span><span></span>'
 menuBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleMenu() })
 
-body.appendChild(img)
+var charbox = document.createElement('div')
+charbox.className = 'krw-charbox'
+charbox.appendChild(img)
+charbox.appendChild(winkImg)
+charbox.appendChild(videoEl)
+body.appendChild(charbox)
 body.appendChild(bubbleBox)
 root.appendChild(body)
 root.appendChild(menuBtn)
@@ -681,6 +714,67 @@ function pressUp() {
   }
   // 时长未知 → 靠 pressAudio.onended 兜底
 }
+
+// ---------- 月兔娘表情状态机 ----------
+// 基础 = 静态图；点击随机触发 wink（静态闪 1.2s）或开心笑视频（约 3s）；
+// 长时间无操作随机进入读书/小憩待机循环，任何互动唤醒
+var IDLE_MS = 180000          // 3 分钟无操作进入待机动作
+var rabbitState = 'static'    // static | wink | happy | idle
+var reactTimer = null
+var lastActive = Date.now()
+
+function stopVideo() {
+  try { videoEl.pause() } catch (err) {}
+  videoEl.style.display = 'none'
+}
+function toStatic() {
+  if (reactTimer) { clearTimeout(reactTimer); reactTimer = null }
+  rabbitState = 'static'
+  winkImg.style.display = 'none'
+  stopVideo()
+}
+function playVideoFor(url, ms) {
+  if (videoDead) return false
+  try {
+    if (videoEl.getAttribute('src') !== url) videoEl.src = url
+    videoEl.currentTime = 0
+    videoEl.style.display = 'block'
+    var p = videoEl.play()
+    if (p && typeof p.catch === 'function') p.catch(function () {})
+    if (ms > 0) {
+      reactTimer = setTimeout(toStatic, ms)
+    }
+    return true
+  } catch (err) { return false }
+}
+// 点击互动：50% wink / 50% 开心笑
+function reactClick() {
+  toStatic()
+  if (Math.random() < 0.5 || videoDead) {
+    rabbitState = 'wink'
+    winkImg.style.display = 'block'
+    reactTimer = setTimeout(toStatic, 1200)
+  } else {
+    rabbitState = 'happy'
+    if (!playVideoFor(VIDEO_URLS.happy, 3000)) toStatic()
+  }
+}
+// 待机：随机读书 / 小憩，循环到被唤醒
+function startIdleAction() {
+  if (rabbitState !== 'static' || videoDead) return
+  rabbitState = 'idle'
+  var url = Math.random() < 0.5 ? VIDEO_URLS.reading : VIDEO_URLS.nap
+  if (!playVideoFor(url, 0)) toStatic()   // ms=0 → 不自动结束
+}
+// 任何互动：重置待机计时，唤醒待机中的兔娘
+function markActive() {
+  lastActive = Date.now()
+  if (rabbitState === 'idle') toStatic()
+}
+setInterval(function () {
+  if (Date.now() - lastActive >= IDLE_MS) startIdleAction()
+}, 15000)
+
 function setSoundSet(v, silent) {
   soundSet = v === 'fx1' ? 'fx1' : 'duck'
   soundSetSelect.value = soundSet
@@ -1143,6 +1237,7 @@ function onDocPointerDown(e) {
   if (e.button !== 0 && e.pointerType === 'mouse') return
   if (!isRabbitHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
+  markActive()
   // Tauri 用 screen 坐标增量（窗口跟着动），mock 用 client 坐标增量
   drag = {
     active: true,
@@ -1182,7 +1277,8 @@ function endDrag(e, clickAllowed) {
   root.classList.remove('krw-dragging')
   setWidgetCursor(isRabbitHit(e) ? 'grab' : '')
   if (clickAllowed && !d.moved) {
-    // 单击兔娘：手动刷新 + 冒泡
+    // 单击兔娘：手动刷新 + 冒泡 + 随机互动表情（wink / 开心笑）
+    reactClick()
     showBubble()
     refresh(true)
     return
