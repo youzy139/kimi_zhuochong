@@ -141,6 +141,8 @@ var css = [
   '.krw-range{flex:1;min-width:0;accent-color:#9a8fd0}',
   '.krw-number{width:64px;border:1px solid rgba(154,143,208,.4);border-radius:6px;padding:2px 4px;font-size:12px;color:' + C_TEXT + ';background:rgba(154,143,208,.12);box-sizing:border-box}',
   '.krw-select{flex:1;border:1px solid rgba(154,143,208,.4);border-radius:6px;background:rgba(154,143,208,.12);color:' + C_TEXT + ';font-size:12px;padding:3px 0;cursor:pointer}',
+  // 下拉展开列表不受 color-scheme:dark 控制，需显式指定深色底浅色字，否则选中项白底白字看不见
+  '.krw-select option{background:#241f4a;color:' + C_TEXT + '}',
   '.krw-check{width:16px;height:16px;accent-color:#9a8fd0;cursor:pointer;flex:0 0 auto}',
   '.krw-menu-sep{height:1px;background:rgba(154,143,208,.25);margin:6px 0}',
   '.krw-volpct{width:40px;text-align:right;color:' + C_SUB + ';font-size:12px}',
@@ -265,11 +267,11 @@ var volPct = document.createElement('span')
 volPct.className = 'krw-volpct'
 volPct.textContent = '90%'
 volInput.addEventListener('input', function () { setVol(volInput.value) })
-// 音效套装选择（小黄鸭 / 音效1）
+// 音效套装选择（小黄鸭 / 叮叮咚咚）
 var soundSetSelect = document.createElement('select')
 soundSetSelect.className = 'krw-select'
 soundSetSelect.appendChild(menuOpt('duck', '小黄鸭'))
-soundSetSelect.appendChild(menuOpt('fx1', '音效1'))
+soundSetSelect.appendChild(menuOpt('fx1', '叮叮咚咚'))
 soundSetSelect.addEventListener('change', function () { setSoundSet(soundSetSelect.value) })
 // 气泡 / 每轮消耗开关
 var bubbleToggle = document.createElement('input')
@@ -598,7 +600,7 @@ var SQUISH = 'scaleY(0.88) scaleX(1.05)'
 var pressAudio = null
 var releaseAudio = null
 var soundDead = false
-// 音效套装：duck=小黄鸭（Ya1/Ya2），fx1=音效1（D1/D2），均来自原项目素材
+// 音效套装：duck=小黄鸭（Ya1/Ya2），fx1=叮叮咚咚（D1/D2），均来自原项目素材
 var SOUND_SETS = {
   duck: { press: 'assets/Ya1.mp3', release: 'assets/Ya2.mp3' },
   fx1: { press: 'assets/D1.mp3', release: 'assets/D2.mp3' }

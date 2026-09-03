@@ -18,7 +18,7 @@ pub struct Config {
     pub scale: f64,
     pub volume: f64,
     pub sound_on: bool,
-    /// "duck"（小黄鸭 Ya1/Ya2）| "fx1"（音效1 D1/D2）
+    /// "duck"（小黄鸭 Ya1/Ya2）| "fx1"（叮叮咚咚 D1/D2）
     pub sound_set: String,
     pub bubble_on: bool,
     pub turn_cost_on: bool,
