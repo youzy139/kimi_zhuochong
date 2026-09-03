@@ -218,6 +218,11 @@ fn parse_usage_line(line: &str) -> Option<Record> {
     if v.get("type")?.as_str()? != "usage.record" {
         return None;
     }
+    // 只收 turn 粒度记录：session 粒度是累计快照（实测 inputOther 可到 18 万+），
+    // 计入会让周用量/5h 窗口虚高，last_turn 也会被污染成「累计消耗」
+    if v.get("usageScope").and_then(|s| s.as_str()) != Some("turn") {
+        return None;
+    }
     let usage = v.get("usage")?;
     let get = |key: &str| usage.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
     let total =
@@ -266,6 +271,16 @@ mod tests {
         assert!(parse_usage_line("not json at all\n").is_none());
         // 含关键字但 JSON 损坏
         assert!(parse_usage_line("{\"type\":\"usage.record\", broken\n").is_none());
+    }
+
+    #[test]
+    fn session_scope_records_are_ignored() {
+        // session 粒度是累计快照（真实样本），不能计入聚合或 last_turn
+        let session_line = "{\"type\":\"usage.record\",\"model\":\"kimi-code/k3\",\"usage\":{\"inputOther\":188907,\"output\":1500,\"inputCacheRead\":19200,\"inputCacheCreation\":0},\"usageScope\":\"session\",\"time\":1787294558678}\n";
+        assert!(parse_usage_line(session_line).is_none());
+        // 缺 usageScope 字段的也不收（口径未知，宁可漏记不可虚高）
+        let no_scope = "{\"type\":\"usage.record\",\"usage\":{\"inputOther\":1,\"output\":2,\"inputCacheRead\":3,\"inputCacheCreation\":0},\"time\":1787294558678}\n";
+        assert!(parse_usage_line(no_scope).is_none());
     }
 
     #[test]

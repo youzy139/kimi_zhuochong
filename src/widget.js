@@ -143,6 +143,9 @@ var css = [
   '.krw-select{flex:1;border:1px solid rgba(154,143,208,.4);border-radius:6px;background:rgba(154,143,208,.12);color:' + C_TEXT + ';font-size:12px;padding:3px 0;cursor:pointer}',
   // 下拉展开列表不受 color-scheme:dark 控制，需显式指定深色底浅色字，否则选中项白底白字看不见
   '.krw-select option{background:#241f4a;color:' + C_TEXT + '}',
+  // 选中项：深紫底白字（原生高亮色反差太刺眼）；悬停项：稍亮的紫
+  '.krw-select option:checked{background:#4a3f8f;color:#fff}',
+  '.krw-select option:hover{background:#352c66}',
   '.krw-check{width:16px;height:16px;accent-color:#9a8fd0;cursor:pointer;flex:0 0 auto}',
   '.krw-menu-sep{height:1px;background:rgba(154,143,208,.25);margin:6px 0}',
   '.krw-volpct{width:40px;text-align:right;color:' + C_SUB + ';font-size:12px}',
