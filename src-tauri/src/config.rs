@@ -24,6 +24,14 @@ pub struct Config {
     pub turn_cost_on: bool,
     /// 每轮消耗泡泡自动关闭毫秒数，0 = 不自动关闭
     pub turn_cost_close_ms: u64,
+    /// 周额度剩余预警线（百分比），低于即主动冒泡提醒
+    pub weekly_warn_percent: f64,
+    /// 任务结束音开关（新一轮对话完成时播放）
+    pub task_end_sound_on: bool,
+    /// 任务结束音效："orb"（Minecraft·经验球）| "a"（音效 A）
+    pub task_end_sound: String,
+    /// 隐藏右上角菜单按钮（隐藏后右键角色唤出菜单）
+    pub hide_menu_btn: bool,
     /// "auto" | "ledger" | "cli"
     pub data_source: String,
     pub weekly_quota_tokens: Option<u64>,
@@ -43,6 +51,10 @@ impl Default for Config {
             bubble_on: true,
             turn_cost_on: true,
             turn_cost_close_ms: 5000,
+            weekly_warn_percent: 20.0,
+            task_end_sound_on: false,
+            task_end_sound: "orb".to_string(),
+            hide_menu_btn: false,
             data_source: "auto".to_string(),
             weekly_quota_tokens: None,
             window5h_warn_tokens: None,
@@ -74,6 +86,13 @@ pub fn kimi_code_home() -> PathBuf {
 /// 配置文件路径
 pub fn config_path() -> PathBuf {
     home_dir().join(".kimi-rabbit-widget").join("config.json")
+}
+
+/// 自定义角色图存放路径（用户选图后复制到这里，避免源文件被移动/删除）
+pub fn custom_image_path() -> PathBuf {
+    home_dir()
+        .join(".kimi-rabbit-widget")
+        .join("custom-rabbit.png")
 }
 
 /// 读取配置；文件缺失或损坏时回退默认值

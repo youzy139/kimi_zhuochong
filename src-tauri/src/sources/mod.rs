@@ -35,6 +35,30 @@ pub struct LastTurn {
     pub seq: u64,
 }
 
+/// 单模型 token 数
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelTokens {
+    pub model: String,
+    pub tokens: u64,
+}
+
+/// 某天的用量（按模型细分 + 合计）
+#[derive(Debug, Clone, Serialize)]
+pub struct DayUsage {
+    pub date: String,
+    pub models: Vec<ModelTokens>,
+    pub total: u64,
+}
+
+/// 用量历史（记录窗口数据源）
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct UsageHistory {
+    /// 按天倒序（最近在前），每天按模型细分
+    pub days: Vec<DayUsage>,
+    /// 全时段按模型合计，token 数降序
+    pub models_all: Vec<ModelTokens>,
+}
+
 /// 额度快照（IPC 契约，serde snake_case）
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -154,6 +178,11 @@ impl Orchestrator {
         self.ledger
             .fetch(cfg)
             .unwrap_or_else(|_| UsageSnapshot::empty("ledger"))
+    }
+
+    /// 用量历史（记录窗口）：直接走 ledger
+    pub fn history(&mut self) -> UsageHistory {
+        self.ledger.history()
     }
 
     fn try_cli(&mut self, cfg: &Config) -> Result<UsageSnapshot, String> {

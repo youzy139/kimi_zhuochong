@@ -1705,6 +1705,7 @@ dependencies = [
 name = "kimi-rabbit-widget"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "portable-pty",
  "serde",
  "serde_json",

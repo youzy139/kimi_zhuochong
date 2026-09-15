@@ -81,6 +81,32 @@ function mockInvoke(cmd, args) {
         resolve(null)
         return
       }
+      if (cmd === 'get_last_turn') {
+        resolve({ tokens: 2100, seq: mockState.seq })
+        return
+      }
+      if (cmd === 'get_usage_history') {
+        // 假数据：近 7 天逐日（倒序）+ 两个模型，方便浏览器预览用量面板
+        var days = []
+        for (var i = 0; i < 7; i++) {
+          var t = new Date(Date.now() - i * 86400000)
+          var mm = t.getMonth() + 1
+          var dd = t.getDate()
+          var ds = t.getFullYear() + '-' + (mm < 10 ? '0' : '') + mm + '-' + (dd < 10 ? '0' : '') + dd
+          var kimi = 3000 + i * 1200
+          var other = 800 + i * 300
+          days.push({
+            date: ds,
+            models: [{ model: 'kimi-for-coding', tokens: kimi }, { model: 'kimi-k2', tokens: other }],
+            total: kimi + other
+          })
+        }
+        resolve({
+          days: days,
+          models_all: [{ model: 'kimi-for-coding', tokens: 45200 }, { model: 'kimi-k2', tokens: 9800 }]
+        })
+        return
+      }
       resolve(null)
     }, 60)
   })
@@ -162,7 +188,26 @@ var css = [
   '.krw-check{width:16px;height:16px;accent-color:#9a8fd0;cursor:pointer;flex:0 0 auto}',
   '.krw-menu-sep{height:1px;background:rgba(154,143,208,.25);margin:6px 0}',
   '.krw-volpct{width:40px;text-align:right;color:' + C_SUB + ';font-size:12px}',
-  '.krw-fuel{color:' + C_GOLD + ';font-size:12px}'
+  '.krw-fuel{color:' + C_GOLD + ';font-size:12px}',
+  // 通用小按钮（退出 / 用量记录 / 应用 / 恢复默认）
+  '.krw-sound{border:1px solid rgba(154,143,208,.4);border-radius:6px;background:rgba(154,143,208,.15);color:' + C_TEXT + ';font-size:12px;padding:3px 10px;cursor:pointer;font-family:inherit}',
+  '.krw-sound:hover{background:rgba(154,143,208,.3)}',
+  // 文本输入（角色图路径）与菜单内小字提示
+  '.krw-text-input{flex:1;min-width:0;border:1px solid rgba(154,143,208,.4);border-radius:6px;padding:2px 4px;font-size:12px;color:' + C_TEXT + ';background:rgba(154,143,208,.12);box-sizing:border-box}',
+  '.krw-menu-hint{flex:1;min-width:0;font-size:11px;color:' + C_SUB + ';white-space:normal;word-break:break-all}',
+  // 用量记录面板：铺满窗口的深色覆盖层（风格对齐 krw-menu）
+  '.krw-overlay{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(21,17,46,.97);z-index:10001;overflow-y:auto;padding:14px 16px;box-sizing:border-box;pointer-events:auto;color:' + C_TEXT + ';font-family:"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei","Segoe UI",sans-serif}',
+  '.krw-overlay-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}',
+  '.krw-overlay-title{font-size:15px;font-weight:700;letter-spacing:.06em}',
+  '.krw-usage-sec{margin:12px 0}',
+  '.krw-usage-h{font-size:12px;color:' + C_SUB + ';margin-bottom:6px;letter-spacing:.05em}',
+  '.krw-usage-row{display:flex;align-items:center;gap:8px;font-size:12px;margin:4px 0}',
+  '.krw-usage-date{flex:0 0 76px;color:' + C_SUB + '}',
+  '.krw-usage-bar{flex:1;min-width:40px;height:8px;border-radius:4px;background:rgba(154,143,208,.22);overflow:hidden}',
+  '.krw-usage-bar-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,#9a8fd0,#d5dcf0)}',
+  '.krw-usage-num{flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums}',
+  '.krw-usage-sub{font-size:11px;color:' + C_SUB + ';margin:2px 0 8px 84px;word-break:break-all}',
+  '.krw-usage-empty{text-align:center;color:' + C_SUB + ';padding:40px 0;font-size:13px}'
 ].join('\n')
 
 var styleEl = document.createElement('style')
@@ -356,6 +401,61 @@ warnInput.step = '1000'
 warnInput.className = 'krw-number'
 warnInput.title = '5 小时滚动窗口的告警阈值（token 数）'
 warnInput.addEventListener('change', function () { setWarnTokens(warnInput.value) })
+// 任务结束音：开关 + 套装（经验球 / 音效 A），追加在「每轮消耗」行
+var taskEndToggle = document.createElement('input')
+taskEndToggle.type = 'checkbox'
+taskEndToggle.className = 'krw-check'
+taskEndToggle.checked = false
+taskEndToggle.title = '每轮对话结束后播放提示音'
+taskEndToggle.addEventListener('change', function () { setTaskEndOn(taskEndToggle.checked) })
+var taskEndSel = document.createElement('select')
+taskEndSel.className = 'krw-select'
+taskEndSel.style.flex = '0 0 auto'
+taskEndSel.disabled = true   // 默认关，随 task_end_sound_on 开关启用
+taskEndSel.appendChild(menuOpt('orb', '经验球'))
+taskEndSel.appendChild(menuOpt('a', '音效 A'))
+taskEndSel.addEventListener('change', function () { setTaskEndSound(taskEndSel.value) })
+// 额度预警线（剩余百分比低于该值时主动冒着急泡，0 = 关闭）
+var warnPctInput = document.createElement('input')
+warnPctInput.type = 'number'
+warnPctInput.min = '0'
+warnPctInput.max = '100'
+warnPctInput.step = '1'
+warnPctInput.className = 'krw-number'
+warnPctInput.value = '20'
+warnPctInput.title = '本周剩余额度低于该百分比时主动提醒，0 表示关闭'
+warnPctInput.addEventListener('change', function () { setWeeklyWarnPercent(warnPctInput.value) })
+// 隐藏菜单按钮（隐藏后只能右键兔娘唤出菜单）
+var hideBtnToggle = document.createElement('input')
+hideBtnToggle.type = 'checkbox'
+hideBtnToggle.className = 'krw-check'
+hideBtnToggle.checked = false
+hideBtnToggle.title = '隐藏悬停出现的汉堡按钮（菜单仍可右键兔娘唤出）'
+hideBtnToggle.addEventListener('change', function () { setHideMenuBtn(hideBtnToggle.checked) })
+// 用量记录面板
+var usageBtn = document.createElement('button')
+usageBtn.type = 'button'
+usageBtn.className = 'krw-sound'
+usageBtn.textContent = '用量记录'
+usageBtn.title = '查看按天 / 按模型的 token 用量统计'
+usageBtn.addEventListener('click', function (e) { e.stopPropagation(); openUsagePanel() })
+// 自定义角色图：路径输入 + 应用 / 恢复默认
+var imgPathInput = document.createElement('input')
+imgPathInput.type = 'text'
+imgPathInput.className = 'krw-text-input'
+imgPathInput.placeholder = '图片绝对路径'
+var imgApplyBtn = document.createElement('button')
+imgApplyBtn.type = 'button'
+imgApplyBtn.className = 'krw-sound'
+imgApplyBtn.textContent = '应用'
+imgApplyBtn.addEventListener('click', function (e) { e.stopPropagation(); applyCustomImage() })
+var imgHint = document.createElement('span')
+imgHint.className = 'krw-menu-hint'
+var imgResetBtn = document.createElement('button')
+imgResetBtn.type = 'button'
+imgResetBtn.className = 'krw-sound'
+imgResetBtn.textContent = '恢复默认'
+imgResetBtn.addEventListener('click', function (e) { e.stopPropagation(); resetCustomImage() })
 // 加油包（fuel_pack 为 null 时整行隐藏）
 var fuelRow = menuRow()
 var fuelValue = document.createElement('span')
@@ -366,10 +466,14 @@ fuelRow.style.display = 'none'
 
 var r1 = menuRow(); r1.appendChild(menuLabel('大小')); r1.appendChild(scaleInput); r1.appendChild(scaleNumber)
 var r2 = menuRow(); r2.appendChild(menuLabel('音效')); r2.appendChild(soundToggle); r2.appendChild(soundSetSelect); r2.appendChild(volInput); r2.appendChild(volPct)
-var r3 = menuRow(); r3.appendChild(menuLabel('气泡')); r3.appendChild(bubbleToggle); r3.appendChild(menuLabel('每轮消耗')); r3.appendChild(turnCostToggle); r3.appendChild(turnCostCloseInput); r3.appendChild(menuLabel('秒'))
+var r3 = menuRow(); r3.style.flexWrap = 'wrap'; r3.appendChild(menuLabel('气泡')); r3.appendChild(bubbleToggle); r3.appendChild(menuLabel('每轮消耗')); r3.appendChild(turnCostToggle); r3.appendChild(turnCostCloseInput); r3.appendChild(menuLabel('秒')); r3.appendChild(menuLabel('结束音')); r3.appendChild(taskEndToggle); r3.appendChild(taskEndSel)
 var r4 = menuRow(); r4.appendChild(menuLabel('数据源')); r4.appendChild(sourceSelect)
 var r5 = menuRow(); r5.appendChild(menuLabel('周额度上限')); r5.appendChild(quotaInput)
 var r6 = menuRow(); r6.appendChild(menuLabel('5h 告警阈值')); r6.appendChild(warnInput)
+var r8 = menuRow(); r8.appendChild(menuLabel('预警线 %')); r8.appendChild(warnPctInput); r8.appendChild(menuLabel('隐藏按钮')); r8.appendChild(hideBtnToggle)
+var r9 = menuRow(); r9.appendChild(usageBtn)
+var r10 = menuRow(); r10.appendChild(menuLabel('角色图')); r10.appendChild(imgPathInput); r10.appendChild(imgApplyBtn)
+var r11 = menuRow(); r11.appendChild(imgHint); r11.appendChild(imgResetBtn)
 var sep = document.createElement('div'); sep.className = 'krw-menu-sep'
 // 退出行：无边框窗口没有标题栏关闭按钮，菜单里给一个显式出口（托盘也可退出）
 var quitBtn = document.createElement('button')
@@ -391,6 +495,10 @@ menuBox.appendChild(r3)
 menuBox.appendChild(r4)
 menuBox.appendChild(r5)
 menuBox.appendChild(r6)
+menuBox.appendChild(r8)
+menuBox.appendChild(r9)
+menuBox.appendChild(r10)
+menuBox.appendChild(r11)
 menuBox.appendChild(sep)
 menuBox.appendChild(fuelRow)
 menuBox.appendChild(r7)
@@ -423,6 +531,16 @@ var turnCostOn = true
 var turnCostCloseMs = 5000   // 每轮消耗泡泡自动关闭毫秒数，0 = 不自动关闭
 var menuOpen = false
 var winAnimId = null        // Tauri 窗口吸附动画
+var bubbleStep = 0          // 点按推进队列：0=关闭 1=状态泡 2..4=随机台词段
+var taskEndOn = false       // 任务结束音开关
+var taskEndSound = 'orb'    // 任务结束音套装：orb=经验球 / a=音效 A
+var lastTaskSeq = -1        // 5 秒轮询 get_last_turn 的对齐序号（-1 = 尚未对齐）
+var weeklyWarnPercent = 20  // 周额度预警线（剩余 %，0 = 关闭）
+var weekWarned = false      // 本周是否已主动弹过着急泡（回升后重新武装）
+var win5hWarned = false     // 5h 窗口 warn 是否已主动弹过（独立标记）
+var hideMenuBtn = false     // 隐藏悬停汉堡按钮（菜单仍可右键唤出）
+var usagePanel = null       // 用量记录面板 DOM（打开中为非 null）
+var savedWinRect = null     // 打开面板前的窗口尺寸与位置（关闭时恢复）
 
 // ---------- 工具 ----------
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v) }
@@ -543,6 +661,10 @@ function applyConfig(d) {
   }
   if (typeof d.weekly_quota_tokens === 'number') quotaInput.value = d.weekly_quota_tokens > 0 ? String(d.weekly_quota_tokens) : ''
   if (typeof d.window5h_warn_tokens === 'number') warnInput.value = d.window5h_warn_tokens > 0 ? String(d.window5h_warn_tokens) : ''
+  if (typeof d.weekly_warn_percent === 'number') setWeeklyWarnPercent(d.weekly_warn_percent, true)
+  if (typeof d.task_end_sound_on === 'boolean') setTaskEndOn(d.task_end_sound_on, true)
+  if (typeof d.task_end_sound === 'string') setTaskEndSound(d.task_end_sound, true)
+  if (typeof d.hide_menu_btn === 'boolean') setHideMenuBtn(d.hide_menu_btn, true)
   // 位置恢复：pos 为空则默认右下角吸附
   if (d.pos && typeof d.pos.x === 'number' && typeof d.pos.y === 'number') {
     // 恢复时不重新吸附，保持记忆位置；若记忆位置本身在某 1/4 贴边区，
@@ -586,6 +708,7 @@ function setVol(v, silent) {
   try {
     if (pressAudio) pressAudio.volume = next
     if (releaseAudio) releaseAudio.volume = next
+    if (taskEndAudio) taskEndAudio.volume = next
   } catch (err) {}
   if (!silent) saveConfig({ volume: next })
 }
@@ -632,6 +755,31 @@ function setWarnTokens(v) {
   saveConfig({ window5h_warn_tokens: n > 0 ? n : null })
   refresh(false)
 }
+function setWeeklyWarnPercent(v, silent) {
+  var n = clamp(Math.round(Number(v) || 0), 0, 100)
+  weeklyWarnPercent = n
+  warnPctInput.value = String(n)
+  weekWarned = false   // 调整预警线后允许重新提醒一次
+  if (!silent) saveConfig({ weekly_warn_percent: n })
+}
+function setTaskEndOn(v, silent) {
+  taskEndOn = !!v
+  taskEndToggle.checked = taskEndOn
+  taskEndSel.disabled = !taskEndOn
+  if (!silent) saveConfig({ task_end_sound_on: taskEndOn })
+}
+function setTaskEndSound(v, silent) {
+  taskEndSound = v === 'a' ? 'a' : 'orb'
+  taskEndSel.value = taskEndSound
+  setupTaskEndSound()
+  if (!silent) saveConfig({ task_end_sound: taskEndSound })
+}
+function setHideMenuBtn(v, silent) {
+  hideMenuBtn = !!v
+  hideBtnToggle.checked = hideMenuBtn
+  if (hideMenuBtn) menuBtn.classList.remove('krw-menu-btn-visible')
+  if (!silent) saveConfig({ hide_menu_btn: hideMenuBtn })
+}
 
 // ---------- 音效（assets/press.mp3 / release.mp3 为原项目小黄鸭音效，加载失败静默） ----------
 var SQUISH = 'scaleY(0.88) scaleX(1.05)'
@@ -664,6 +812,41 @@ function playSound(a) {
     var p = a.play()
     if (p && typeof p.catch === 'function') p.catch(function () {})
   } catch (err) {}
+}
+// ---------- 任务结束音（对齐上游鲸鱼 v0.3.0） ----------
+// 每 5 秒轮询 get_last_turn：首次只对齐 seq 不播；之后 seq 变大且开关开 → 播音。
+// 与消耗泡泡的 lastTurnSeq（60s refresh 里维护）相互独立，互不影响
+var TASK_END_SOUNDS = {
+  orb: 'assets/task-end-orb.wav',   // Minecraft·经验球
+  a: 'assets/task-end-a.wav'        // 音效 A
+}
+var taskEndAudio = null
+var taskEndDead = false
+function setupTaskEndSound() {
+  try {
+    taskEndAudio = new Audio(TASK_END_SOUNDS[taskEndSound] || TASK_END_SOUNDS.orb)
+    taskEndAudio.preload = 'auto'
+    taskEndAudio.volume = soundVol
+    taskEndAudio.addEventListener('error', function () { taskEndDead = true })
+  } catch (err) { taskEndDead = true }
+}
+function playTaskEndSound() {
+  // 音量沿用 soundVol；总音效开关 sound_on 关闭时同样静音
+  if (!taskEndOn || !soundOn || taskEndDead || !taskEndAudio) return
+  try {
+    taskEndAudio.currentTime = 0
+    var p = taskEndAudio.play()
+    if (p && typeof p.catch === 'function') p.catch(function () {})
+  } catch (err) {}
+}
+function pollLastTurn() {
+  invoke('get_last_turn')
+    .then(function (d) {
+      if (!d || typeof d.seq !== 'number') return
+      if (lastTaskSeq >= 0 && d.seq > lastTaskSeq) playTaskEndSound()
+      lastTaskSeq = d.seq
+    })
+    .catch(function () {})
 }
 // 按压/松手时序（对齐原项目）：短按 → 松手音与按压音末尾重叠 100ms；
 // 长按（松手时按压音已播完）→ 松手时立即播松手音。避免同文件抢断叠音
@@ -992,15 +1175,62 @@ function restoreBubbleLines() {
   gifEl.style.display = 'none'
   render()
 }
+function resetBubbleTimer() {
+  if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
+  bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
+}
 function showBubble() {
   if (!bubbleOn) return
   if (costBubbleActive) return   // 消耗泡泡显示期间普通气泡不弹
   if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
   bubbleShown = true
+  bubbleStep = 1
   bubbleRandomActive = false
+  bubbleRandomLines = null
   restoreBubbleLines()
   bubbleBox.classList.add('krw-bubble-open')
   bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
+}
+// 切到下一个加权随机台词段（重置 5 秒自动收起计时）
+function showRandomSegment() {
+  bubbleRandomActive = true
+  bubbleRandomLines = pickRandomLines()
+  swapBubbleContent(function () { applyBubbleLines(bubbleRandomLines) })
+  resetBubbleTimer()
+}
+var BUBBLE_MAX_RANDOM = 3   // 状态泡之后最多再推进 3 段随机台词
+// 点按推进队列（点兔娘或点泡泡都走这里）：
+// 关闭 → 状态泡 → 随机台词 ×≤3 → 收起；下次从状态重新开始
+function advanceBubble() {
+  if (!bubbleOn) return
+  if (costBubbleActive) return
+  if (!bubbleShown || bubbleStep <= 0) { showBubble(); return }
+  if (bubbleStep < 1 + BUBBLE_MAX_RANDOM) {
+    bubbleStep++
+    showRandomSegment()
+  } else {
+    hideBubble()   // 最后一段之后再点 = 收起
+  }
+}
+// 主动弹着急台词泡（额度预警用）；消耗泡泡显示期间不弹（返回 false 表示未弹出）
+function showAnxiousBubble() {
+  if (!bubbleOn) return false
+  if (costBubbleActive) return false
+  bubbleRandomActive = true
+  bubbleRandomLines = singleCenter('A', pickOne(LINES_ANXIOUS), '', true)
+  if (!bubbleShown) {
+    if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
+    bubbleShown = true
+    bubbleStep = 2            // 计为一段随机台词，点按可继续推进
+    restoreBubbleLines()      // 内部 render 会按 bubbleRandomLines 重排内容
+    bubbleBox.classList.add('krw-bubble-open')
+    bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
+  } else {
+    if (bubbleStep < 2) bubbleStep = 2
+    swapBubbleContent(function () { applyBubbleLines(bubbleRandomLines) })
+    resetBubbleTimer()
+  }
+  return true
 }
 function hideBubble() {
   if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
@@ -1012,6 +1242,7 @@ function hideBubble() {
   hintEl.style.opacity = ''
   bubbleRandomActive = false
   bubbleRandomLines = null
+  bubbleStep = 0
   bubbleShown = false
   bubbleBox.classList.remove('krw-bubble-open')
   // gif 靠 opacity 过渡淡出，等动画结束再 display:none
@@ -1021,16 +1252,7 @@ bubbleBox.addEventListener('click', function (e) {
   e.stopPropagation()
   if (!bubbleShown) return
   if (costBubbleActive) { hideCostBubble(); return }
-  if (bubbleRandomActive) {
-    hideBubble()   // 再点关闭
-  } else {
-    // 首次点击：切加权随机台词，并重置 5 秒自动关闭计时
-    bubbleRandomActive = true
-    bubbleRandomLines = pickRandomLines()
-    swapBubbleContent(function () { applyBubbleLines(bubbleRandomLines) })
-    if (bubbleTimer) { clearTimeout(bubbleTimer); bubbleTimer = null }
-    bubbleTimer = setTimeout(hideBubble, BUBBLE_MS)
-  }
+  advanceBubble()   // 点泡泡 = 推进到下一个台词段，最后一段后再点收起
 })
 
 // ---------- 每轮对话消耗泡泡 ----------
@@ -1041,6 +1263,7 @@ function showCostBubble(tokens) {
   if (animId) { cancelAnimationFrame(animId); animId = null }
   costBubbleActive = true
   bubbleRandomActive = false
+  bubbleStep = 0
   bubbleShown = true
   lastHintText = null
   barEl.style.display = 'none'
@@ -1169,6 +1392,7 @@ function refresh(manual) {
             shown = rp
           }
         }
+        checkWarns(data, rp)
         render()
       } else {
         state.status = 'error'
@@ -1182,6 +1406,23 @@ function refresh(manual) {
       render()
     })
     .then(function () { busy = false })
+}
+// 额度预警：剩余百分比跌破预警线 / 5h 窗口 warn 时主动弹一次着急泡；
+// 各自独立标记，额度回升（或窗口恢复正常）后重新武装可再弹
+function checkWarns(data, rp) {
+  if (rp !== null && weeklyWarnPercent > 0) {
+    if (rp < weeklyWarnPercent) {
+      if (!weekWarned && showAnxiousBubble()) weekWarned = true
+    } else {
+      weekWarned = false
+    }
+  }
+  var w = data && data.window5h
+  if (w && w.status === 'warn') {
+    if (!win5hWarned && showAnxiousBubble()) win5hWarned = true
+  } else {
+    win5hWarned = false
+  }
 }
 function updateFuelRow(fp) {
   if (fp === null || fp === undefined) { fuelRow.style.display = 'none'; return }
@@ -1205,7 +1446,7 @@ function toggleMenu() {
   menuOpen = !menuOpen
   if (menuOpen) positionMenu()
   menuBox.classList.toggle('krw-menu-open', menuOpen)
-  if (menuOpen) menuBtn.classList.add('krw-menu-btn-visible')
+  if (menuOpen && !hideMenuBtn) menuBtn.classList.add('krw-menu-btn-visible')
 }
 function closeMenu() {
   menuOpen = false
@@ -1262,7 +1503,7 @@ function isRabbitHit(e) {
 // ---------- 拖拽：pointer 跟踪 + Tauri 移动 OS 窗口 / mock 挪 DOM ----------
 function onDocPointerDown(e) {
   if (e.target && e.target.closest) {
-    if (e.target.closest('.krw-bubble') || e.target.closest('.krw-menu') || e.target.closest('.krw-menu-btn')) return
+    if (e.target.closest('.krw-bubble') || e.target.closest('.krw-menu') || e.target.closest('.krw-menu-btn') || e.target.closest('.krw-overlay')) return
   }
   if (menuOpen) { closeMenu(); return }
   if (e.button !== 0 && e.pointerType === 'mouse') return
@@ -1308,9 +1549,9 @@ function endDrag(e, clickAllowed) {
   root.classList.remove('krw-dragging')
   setWidgetCursor(isRabbitHit(e) ? 'grab' : '')
   if (clickAllowed && !d.moved) {
-    // 单击兔娘：手动刷新 + 冒泡 + 随机互动表情（wink / 开心笑）
+    // 单击兔娘：手动刷新 + 推进泡泡队列 + 随机互动表情（wink / 开心笑）
     reactClick()
-    showBubble()
+    advanceBubble()
     refresh(true)
     return
   }
@@ -1323,9 +1564,18 @@ function endDrag(e, clickAllowed) {
 }
 document.addEventListener('pointerdown', onDocPointerDown, true)
 document.addEventListener('click', function (e) {
-  // 拦截角色区域内的 click，避免穿透触发下方元素
+  // 拦截角色区域内的 click，避免穿透触发下方元素（覆盖层面板除外）
+  if (e.target && e.target.closest && e.target.closest('.krw-overlay')) return
   if (!isRabbitHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
+}, true)
+// 右键兔娘区域：唤出/收起菜单（hide_menu_btn 隐藏按钮后唯一入口）
+document.addEventListener('contextmenu', function (e) {
+  if (e.target && e.target.closest && (e.target.closest('.krw-menu') || e.target.closest('.krw-overlay'))) return
+  if (!isRabbitHit(e)) return
+  try { e.preventDefault(); e.stopPropagation() } catch (err) {}
+  markActive()
+  toggleMenu()
 }, true)
 
 var widgetCursor = ''
@@ -1339,21 +1589,202 @@ document.addEventListener('pointermove', function (e) {
   if (drag && drag.active) { setWidgetCursor('grabbing'); return }
   var el = null
   try { el = document.elementFromPoint(e.clientX, e.clientY) } catch (err) {}
-  if (el && el.closest && (el.closest('.krw-bubble') || el.closest('.krw-menu') || el.closest('.krw-menu-btn'))) {
+  if (el && el.closest && (el.closest('.krw-bubble') || el.closest('.krw-menu') || el.closest('.krw-menu-btn') || el.closest('.krw-overlay'))) {
     setWidgetCursor('')
-    menuBtn.classList.add('krw-menu-btn-visible')
+    if (!hideMenuBtn) menuBtn.classList.add('krw-menu-btn-visible')
     return
   }
   var over = isRabbitHit(e)
   setWidgetCursor(over ? 'grab' : '')
-  menuBtn.classList.toggle('krw-menu-btn-visible', over || menuOpen)
+  menuBtn.classList.toggle('krw-menu-btn-visible', !hideMenuBtn && (over || menuOpen))
 }, true)
+
+// ---------- 用量记录面板（对齐上游鲸鱼 v0.3.0） ----------
+var PANEL_W = 560
+var PANEL_H = 520
+function tauriSetSizeWH(w, h) {
+  try {
+    var s = new TAURI.dpi.LogicalSize(Math.round(w), Math.round(h))
+    var r = tauriWin.setSize(s)
+    if (r && typeof r.catch === 'function') r.catch(function () {})
+  } catch (err) {}
+}
+function panelEl(tag, cls, text) {
+  var el = document.createElement(tag || 'div')
+  if (cls) el.className = cls
+  if (text !== undefined && text !== null) el.textContent = text
+  return el
+}
+// 带迷你柱状条的一行：左标签 + 条 + 右数值
+function usageBarRow(label, ratio, numText) {
+  var row = panelEl('div', 'krw-usage-row')
+  row.appendChild(panelEl('span', 'krw-usage-date', label))
+  var bar = panelEl('div', 'krw-usage-bar')
+  var fill = panelEl('div', 'krw-usage-bar-fill')
+  fill.style.width = clamp(ratio * 100, 0, 100) + '%'
+  bar.appendChild(fill)
+  row.appendChild(bar)
+  row.appendChild(panelEl('span', 'krw-usage-num', numText))
+  return row
+}
+function todayStr() {
+  var t = new Date()
+  var m = t.getMonth() + 1
+  var d = t.getDate()
+  return t.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d
+}
+function renderUsagePanel(bodyEl, d) {
+  bodyEl.innerHTML = ''
+  var days = d && Array.isArray(d.days) ? d.days : []
+  var modelsAll = d && Array.isArray(d.models_all) ? d.models_all : []
+  if (!days.length && !modelsAll.length) {
+    bodyEl.appendChild(panelEl('div', 'krw-usage-empty', '还没有用量记录'))
+    return
+  }
+  var i
+  // 今日合计
+  var ts = todayStr()
+  var todayTotal = 0
+  for (i = 0; i < days.length; i++) {
+    if (days[i] && days[i].date === ts) { todayTotal = Number(days[i].total) || 0; break }
+  }
+  var secToday = panelEl('div', 'krw-usage-sec')
+  secToday.appendChild(panelEl('div', 'krw-usage-h', '今日合计'))
+  var todayRow = panelEl('div', 'krw-usage-row')
+  todayRow.appendChild(panelEl('span', 'krw-usage-date', ts.slice(5)))
+  todayRow.appendChild(panelEl('span', 'krw-usage-num', fmtInt(todayTotal) + ' token'))
+  secToday.appendChild(todayRow)
+  bodyEl.appendChild(secToday)
+  // 近 7 天逐日 token（迷你柱状条，days 按日期倒序）
+  if (days.length) {
+    var last7 = days.slice(0, 7)
+    var max7 = 1
+    for (i = 0; i < last7.length; i++) max7 = Math.max(max7, Number(last7[i].total) || 0)
+    var sec7 = panelEl('div', 'krw-usage-sec')
+    sec7.appendChild(panelEl('div', 'krw-usage-h', '近 7 天'))
+    for (i = 0; i < last7.length; i++) {
+      sec7.appendChild(usageBarRow(String(last7[i].date || '').slice(5), (Number(last7[i].total) || 0) / max7, fmtInt(last7[i].total)))
+    }
+    bodyEl.appendChild(sec7)
+  }
+  // 全时段模型占比（models_all 按 tokens 降序）
+  if (modelsAll.length) {
+    var sum = 0
+    for (i = 0; i < modelsAll.length; i++) sum += Number(modelsAll[i].tokens) || 0
+    var secM = panelEl('div', 'krw-usage-sec')
+    secM.appendChild(panelEl('div', 'krw-usage-h', '模型占比（全时段）'))
+    for (i = 0; i < modelsAll.length; i++) {
+      var tk = Number(modelsAll[i].tokens) || 0
+      var pct = sum > 0 ? Math.round(tk / sum * 1000) / 10 : 0
+      secM.appendChild(usageBarRow(String(modelsAll[i].model || '未知'), sum > 0 ? tk / sum : 0, pct + '% · ' + fmtInt(tk)))
+    }
+    bodyEl.appendChild(secM)
+  }
+  // 逐日明细（按天倒序：日期 + 当日合计 + 模型细分）
+  if (days.length) {
+    var secD = panelEl('div', 'krw-usage-sec')
+    secD.appendChild(panelEl('div', 'krw-usage-h', '逐日明细'))
+    for (i = 0; i < days.length; i++) {
+      var dd = days[i]
+      var dRow = panelEl('div', 'krw-usage-row')
+      dRow.appendChild(panelEl('span', 'krw-usage-date', String(dd.date || '')))
+      dRow.appendChild(panelEl('span', 'krw-usage-num', fmtInt(dd.total) + ' token'))
+      secD.appendChild(dRow)
+      var ms = Array.isArray(dd.models) ? dd.models : []
+      var parts = []
+      for (var j = 0; j < ms.length; j++) parts.push(String(ms[j].model || '未知') + ' ' + fmtInt(ms[j].tokens))
+      if (parts.length) secD.appendChild(panelEl('div', 'krw-usage-sub', parts.join(' · ')))
+    }
+    bodyEl.appendChild(secD)
+  }
+}
+function openUsagePanel() {
+  if (usagePanel) return
+  closeMenu()
+  markActive()
+  // Tauri：放大窗口容纳面板并记住原尺寸/位置（关闭时恢复）；mock 直接铺满页面不动窗口
+  if (isTauri) {
+    savedWinRect = { size: rootSize(), left: state.left, top: state.top }
+    var sr = screenRect()
+    var nx = clamp(state.left, sr.x, sr.x + Math.max(0, sr.w - PANEL_W))
+    var ny = clamp(state.top, sr.y, sr.y + Math.max(0, sr.h - PANEL_H))
+    tauriSetSizeWH(PANEL_W, PANEL_H)
+    if (nx !== state.left || ny !== state.top) tauriSetPosition(nx, ny)
+  }
+  usagePanel = panelEl('div', 'krw-overlay')
+  var head = panelEl('div', 'krw-overlay-head')
+  head.appendChild(panelEl('span', 'krw-overlay-title', '用量记录'))
+  var closeBtn = panelEl('button', 'krw-sound', '关闭')
+  closeBtn.type = 'button'
+  closeBtn.addEventListener('click', function (e) { e.stopPropagation(); closeUsagePanel() })
+  head.appendChild(closeBtn)
+  usagePanel.appendChild(head)
+  var bodyEl = panelEl('div')
+  bodyEl.appendChild(panelEl('div', 'krw-usage-empty', '加载中…'))
+  usagePanel.appendChild(bodyEl)
+  document.body.appendChild(usagePanel)
+  invoke('get_usage_history')
+    .then(function (d) { if (usagePanel) renderUsagePanel(bodyEl, d) })
+    .catch(function () { if (usagePanel) renderUsagePanel(bodyEl, null) })
+}
+function closeUsagePanel() {
+  if (!usagePanel) return
+  try { document.body.removeChild(usagePanel) } catch (err) {}
+  usagePanel = null
+  if (isTauri && savedWinRect) {
+    tauriSetSizeWH(savedWinRect.size, savedWinRect.size)
+    tauriSetPosition(savedWinRect.left, savedWinRect.top)
+    savedWinRect = null
+  }
+}
+
+// ---------- 自定义角色图 ----------
+function setImgHint(t) { imgHint.textContent = t || '' }
+function applyCustomImage() {
+  if (!isTauri) { setImgHint('浏览器预览模式不支持换图'); return }
+  var p = String(imgPathInput.value || '').trim()
+  if (!p) { setImgHint('请先输入图片绝对路径'); return }
+  setImgHint('应用中…')
+  invoke('set_custom_image', { path: p })
+    .then(function (finalPath) {
+      if (finalPath) {
+        try { img.src = TAURI.core.convertFileSrc(finalPath) } catch (err) {}
+        imgPathInput.value = finalPath
+        setImgHint('已应用')
+      } else {
+        setImgHint('应用失败')
+      }
+    })
+    .catch(function (err) { setImgHint('失败：' + String(err).slice(0, 40)) })
+}
+function resetCustomImage() {
+  if (!isTauri) { setImgHint('浏览器预览模式不支持换图'); return }
+  invoke('clear_custom_image')
+    .then(function () {
+      img.src = IMG_URL
+      imgPathInput.value = ''
+      setImgHint('已恢复默认')
+    })
+    .catch(function (err) { setImgHint('失败：' + String(err).slice(0, 40)) })
+}
 
 // ---------- 启动 ----------
 setupSound()
+setupTaskEndSound()
 if (isTauri) tauriSetSize(rootSize())
 express()
 render()
+// 启动时恢复自定义角色图（mock 模式跳过，保持默认图）
+if (isTauri) {
+  invoke('get_custom_image')
+    .then(function (p) {
+      if (p) {
+        try { img.src = TAURI.core.convertFileSrc(p) } catch (err) {}
+        imgPathInput.value = p
+      }
+    })
+    .catch(function () {})
+}
 // 先读配置恢复（含位置），再开始刷新
 invoke('get_config')
   .then(function (d) { applyConfig(d || {}) })
@@ -1364,6 +1795,7 @@ invoke('get_config')
   })
   .then(function () { refresh(false) })
 setInterval(function () { refresh(false) }, REFRESH_MS)
+setInterval(pollLastTurn, 5000)   // 任务结束音：5 秒轮询 get_last_turn
 // 倒计时文字每分钟更新一次（仅刷新文案，不打断滚动动画）
 setInterval(function () {
   if (!state.usage || costBubbleActive || bubbleRandomActive) return

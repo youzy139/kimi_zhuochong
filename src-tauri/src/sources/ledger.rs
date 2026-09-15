@@ -25,8 +25,8 @@ struct FileState {
     mtime: Option<SystemTime>,
 }
 
-/// 一条用量记录：(epoch 毫秒, 总 token)
-type Record = (i64, u64);
+/// 一条用量记录：(epoch 毫秒, 总 token, 模型名)
+type Record = (i64, u64, String);
 
 pub struct LedgerSource {
     files: HashMap<PathBuf, FileState>,
@@ -142,8 +142,8 @@ impl LedgerSource {
         let week_used: u64 = self
             .records
             .iter()
-            .filter(|(t, _)| *t >= period_start && *t < reset_at)
-            .map(|(_, n)| *n)
+            .filter(|(t, _, _)| *t >= period_start && *t < reset_at)
+            .map(|(_, n, _)| *n)
             .sum();
         let percent = cfg
             .weekly_quota_tokens
@@ -155,8 +155,8 @@ impl LedgerSource {
         let win_used: u64 = self
             .records
             .iter()
-            .filter(|(t, _)| *t >= win_start && *t <= now)
-            .map(|(_, n)| *n)
+            .filter(|(t, _, _)| *t >= win_start && *t <= now)
+            .map(|(_, n, _)| *n)
             .sum();
         let status = match cfg.window5h_warn_tokens {
             Some(th) if win_used >= th => "warn",
@@ -168,8 +168,8 @@ impl LedgerSource {
         let last_turn = self
             .records
             .iter()
-            .max_by_key(|(t, _)| *t)
-            .map(|(_, n)| LastTurn {
+            .max_by_key(|(t, _, _)| *t)
+            .map(|(_, n, _)| LastTurn {
                 tokens: *n,
                 seq: self.records.len() as u64,
             });
@@ -208,6 +208,46 @@ impl UsageSource for LedgerSource {
     }
 }
 
+impl LedgerSource {
+    /// 用量历史：先增量扫描，再按 (本地日期, 模型) 与全时段模型两个维度聚合
+    pub fn history(&mut self) -> super::UsageHistory {
+        let root = kimi_code_home().join("sessions");
+        self.scan(&root);
+        let mut by_day: std::collections::BTreeMap<String, std::collections::BTreeMap<String, u64>> =
+            std::collections::BTreeMap::new();
+        let mut by_model: std::collections::BTreeMap<String, u64> =
+            std::collections::BTreeMap::new();
+        for (t, n, m) in &self.records {
+            *by_day
+                .entry(local_date(*t))
+                .or_default()
+                .entry(m.clone())
+                .or_insert(0) += n;
+            *by_model.entry(m.clone()).or_insert(0) += n;
+        }
+        let mut days: Vec<super::DayUsage> = by_day
+            .into_iter()
+            .map(|(date, models)| {
+                let mut models: Vec<super::ModelTokens> = models
+                    .into_iter()
+                    .map(|(model, tokens)| super::ModelTokens { model, tokens })
+                    .collect();
+                models.sort_by_key(|mt| std::cmp::Reverse(mt.tokens));
+                let total = models.iter().map(|mt| mt.tokens).sum();
+                super::DayUsage { date, models, total }
+            })
+            .collect();
+        // 最近日期在前
+        days.sort_by(|a, b| b.date.cmp(&a.date));
+        let mut models_all: Vec<super::ModelTokens> = by_model
+            .into_iter()
+            .map(|(model, tokens)| super::ModelTokens { model, tokens })
+            .collect();
+        models_all.sort_by_key(|mt| std::cmp::Reverse(mt.tokens));
+        super::UsageHistory { days, models_all }
+    }
+}
+
 /// 解析一行 wire.jsonl；非 usage.record 或坏行返回 None
 fn parse_usage_line(line: &str) -> Option<Record> {
     // 快速子串过滤，避免对每行做完整 JSON 解析
@@ -224,11 +264,23 @@ fn parse_usage_line(line: &str) -> Option<Record> {
         return None;
     }
     let usage = v.get("usage")?;
+    let model = v
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("unknown")
+        .to_string();
     let get = |key: &str| usage.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
     let total =
         get("inputOther") + get("output") + get("inputCacheRead") + get("inputCacheCreation");
     let time = v.get("time")?.as_i64()?;
-    Some((time, total))
+    Some((time, total, model))
+}
+
+/// epoch 毫秒 → 本地日期字符串 YYYY-MM-DD
+fn local_date(ms: i64) -> String {
+    chrono::DateTime::from_timestamp_millis(ms)
+        .map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -263,9 +315,10 @@ mod tests {
     #[test]
     fn parse_line_ok_and_skip_garbage() {
         let line = usage_line(1784685328447, (2183, 124, 19200, 0));
-        let (t, n) = parse_usage_line(&line).unwrap();
+        let (t, n, m) = parse_usage_line(&line).unwrap();
         assert_eq!(t, 1784685328447);
         assert_eq!(n, 2183 + 124 + 19200);
+        assert_eq!(m, "kimi-code/k3");
 
         assert!(parse_usage_line("{\"type\":\"other\"}\n").is_none());
         assert!(parse_usage_line("not json at all\n").is_none());
@@ -288,10 +341,10 @@ mod tests {
         let now = super::super::now_millis();
         let mut src = LedgerSource::new();
         // 本周内两条
-        src.records.push((now - 3600_000, 1000));
-        src.records.push((now - 60_000, 500));
+        src.records.push((now - 3600_000, 1000, "m1".to_string()));
+        src.records.push((now - 60_000, 500, "m1".to_string()));
         // 8 天前：上个周期，不计入本周
-        src.records.push((now - 8 * 24 * 3600_000, 9999));
+        src.records.push((now - 8 * 24 * 3600_000, 9999, "m1".to_string()));
 
         let cfg = Config {
             week_anchor: Some(now - 24 * 3600_000), // 锚在昨天，本周内
@@ -317,7 +370,7 @@ mod tests {
     fn aggregate_without_quota_gives_null_percent() {
         let now = super::super::now_millis();
         let mut src = LedgerSource::new();
-        src.records.push((now - 1000, 100));
+        src.records.push((now - 1000, 100, "m1".to_string()));
         let cfg = Config {
             week_anchor: Some(now),
             ..Default::default()
