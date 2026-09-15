@@ -110,8 +110,10 @@ var css = [
   // 不直接在 video 上用 border-radius——Chromium 会把播放中的 video 提升为
   // 独立合成层，圆角会丢失（变回方块），容器 overflow:hidden 才可靠
   '.krw-charbox{position:absolute;right:0;bottom:0;width:60%;height:60%;border-radius:50%;overflow:hidden;box-shadow:0 0 24px rgba(154,143,208,.35);pointer-events:none}',
-  '.krw-img,.krw-wink,.krw-video{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none;user-select:none;object-fit:cover}',
-  '.krw-wink,.krw-video{display:none}',
+  '.krw-img,.krw-wink,.krw-video{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none;-webkit-user-drag:none;user-select:none;object-fit:cover;clip-path:circle(50% at 50% 50%)}',
+  // clip-path 是合成器级裁剪：WebView2 的 video 独立合成层会无视
+  // 祖先 border-radius 和 overflow:hidden（变回方块），只有 clip-path 可靠
+  '.krw-wink,.krw-video{display:none;opacity:0;transition:opacity .25s ease}',
   '.krw-bubble{position:absolute;left:0;top:0;width:100%;aspect-ratio:1026/700;pointer-events:none;z-index:1;--krw-u:calc(' + BASE_PX + 'px * var(--krw-scale) / 1026)}',
   '.krw-bubble svg{display:block;width:100%;height:100%;pointer-events:none}',
   '.krw-bubble svg path,.krw-bubble svg ellipse{pointer-events:none;cursor:pointer}',
@@ -716,47 +718,76 @@ function pressUp() {
 }
 
 // ---------- 月兔娘表情状态机 ----------
-// 基础 = 静态图；点击随机触发 wink（静态闪 1.2s）或开心笑视频（约 3s）；
-// 长时间无操作随机进入读书/小憩待机循环，任何互动唤醒
+// 基础 = 静态图；点击随机触发眨眼（wink 淡入淡出×2）或开心笑视频（约 3s 淡入淡出）；
+// 长时间无操作随机进入读书/小憩待机循环，任何互动唤醒。所有切换都走淡入淡出，不生硬
 var IDLE_MS = 180000          // 3 分钟无操作进入待机动作
 var rabbitState = 'static'    // static | wink | happy | idle
 var reactTimer = null
 var lastActive = Date.now()
 
-function stopVideo() {
-  try { videoEl.pause() } catch (err) {}
-  videoEl.style.display = 'none'
+// display:none ↔ block 无法直接做过渡，先显形再下一帧抬 opacity
+function showLayer(el) {
+  el.style.display = 'block'
+  void el.offsetWidth
+  el.style.opacity = '1'
 }
-function toStatic() {
+function hideLayer(el, done) {
+  el.style.opacity = '0'
+  setTimeout(function () {
+    el.style.display = 'none'
+    if (done) done()
+  }, 280)
+}
+function stopVideo(fade) {
+  if (fade) {
+    hideLayer(videoEl, function () { try { videoEl.pause() } catch (err) {} })
+  } else {
+    try { videoEl.pause() } catch (err) {}
+    videoEl.style.opacity = '0'
+    videoEl.style.display = 'none'
+  }
+}
+function toStatic(fade) {
   if (reactTimer) { clearTimeout(reactTimer); reactTimer = null }
   rabbitState = 'static'
-  winkImg.style.display = 'none'
-  stopVideo()
+  hideLayer(winkImg)
+  stopVideo(fade)
 }
 function playVideoFor(url, ms) {
   if (videoDead) return false
   try {
     if (videoEl.getAttribute('src') !== url) videoEl.src = url
     videoEl.currentTime = 0
-    videoEl.style.display = 'block'
+    showLayer(videoEl)
     var p = videoEl.play()
     if (p && typeof p.catch === 'function') p.catch(function () {})
     if (ms > 0) {
-      reactTimer = setTimeout(toStatic, ms)
+      reactTimer = setTimeout(function () { toStatic(true) }, ms)
     }
     return true
   } catch (err) { return false }
 }
-// 点击互动：50% wink / 50% 开心笑
+// 眨眼动画：wink 淡入 → 停留 → 淡出，重复 N 次（像真眨眼，不是硬切图片）
+function blink(times) {
+  showLayer(winkImg)
+  reactTimer = setTimeout(function () {
+    hideLayer(winkImg)
+    if (times > 1) {
+      reactTimer = setTimeout(function () { blink(times - 1) }, 380)
+    } else {
+      reactTimer = setTimeout(function () { if (rabbitState === 'wink') toStatic(false) }, 320)
+    }
+  }, 480)
+}
+// 点击互动：50% 眨眼 / 50% 开心笑
 function reactClick() {
-  toStatic()
+  toStatic(false)
   if (Math.random() < 0.5 || videoDead) {
     rabbitState = 'wink'
-    winkImg.style.display = 'block'
-    reactTimer = setTimeout(toStatic, 1200)
+    blink(2)
   } else {
     rabbitState = 'happy'
-    if (!playVideoFor(VIDEO_URLS.happy, 3000)) toStatic()
+    if (!playVideoFor(VIDEO_URLS.happy, 3000)) toStatic(false)
   }
 }
 // 待机：随机读书 / 小憩，循环到被唤醒
@@ -764,12 +795,12 @@ function startIdleAction() {
   if (rabbitState !== 'static' || videoDead) return
   rabbitState = 'idle'
   var url = Math.random() < 0.5 ? VIDEO_URLS.reading : VIDEO_URLS.nap
-  if (!playVideoFor(url, 0)) toStatic()   // ms=0 → 不自动结束
+  if (!playVideoFor(url, 0)) toStatic(false)   // ms=0 → 不自动结束
 }
-// 任何互动：重置待机计时，唤醒待机中的兔娘
+// 任何互动：重置待机计时，唤醒待机中的兔娘（淡出回静态图）
 function markActive() {
   lastActive = Date.now()
-  if (rabbitState === 'idle') toStatic()
+  if (rabbitState === 'idle') toStatic(true)
 }
 setInterval(function () {
   if (Date.now() - lastActive >= IDLE_MS) startIdleAction()
