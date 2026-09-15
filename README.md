@@ -26,32 +26,63 @@
 - **随机台词气泡**：加权随机（含 gif 动图台词组，素材缺失时自动降级文字），5 秒自动收起；额度低于 20% 时月兔娘会开始着急
 - 配色：暗夜蓝紫 + 月光银
 
-## 安装步骤
+## 布置教程：在你自己的电脑上养一只月兔娘
 
-### 从源码构建（当前方式）
+> 全程不需要任何 API Key、令牌或账号密码——月兔娘读的是你自己电脑上
+> Kimi Code CLI 的本地数据，你的 Coding Plan 开箱即连。
 
-前置依赖：
+### 第一步：装 Kimi Code CLI 并登录（数据源）
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust 工具链](https://rustup.rs/)（stable）
-- Windows 10/11（系统自带 WebView2 运行时；过旧系统需安装 [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/)）
+月兔娘的额度数据全部来自本机的 Kimi Code CLI，所以先确保：
+
+1. 安装 [Kimi Code CLI](https://www.kimi.com/code/docs/en/) 并能运行 `kimi` 命令
+2. 在 CLI 里 `/login` 登录你的 Kimi 账号（就是订阅了 Coding Plan 的那个）
+3. 正常用几次（聊过天、产生过会话记录即可）
+
+满足这三条，你的 Coding Plan 就已经「连接」好了——没有第四步。
+
+### 第二步：准备构建环境（只需一次）
+
+- [Node.js](https://nodejs.org/) 18 或更高版本
+- [Rust 工具链](https://rustup.rs/)：Windows 下载运行 `rustup-init.exe`，一路默认即可
+- Windows 10/11（系统自带 WebView2；过旧系统装一下 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)）
+
+### 第三步：构建并启动
 
 ```bash
 git clone https://github.com/youzy139/kimi_zhuochong.git
 cd kimi_zhuochong
 npm install
-npm run dev      # 开发模式运行（带热重载）
-npm run build    # 产出安装包（src-tauri/target/release/bundle/）
+npm run build
 ```
 
-构建产物约 10 MB 量级，常驻内存占用远低于 Electron 方案。
+构建完成后：
 
-### 使用前提
+- 正式版单文件 exe 在 `src-tauri/target/release/kimi-rabbit-widget.exe`（约 10 MB，
+  可挪到任何固定位置，双击即启动）
+- `src-tauri/target/release/bundle/` 下还有安装包
+- 开发调试可以用 `npm run dev`（带热重载）
 
-挂件的数据来自本机 Kimi Code CLI 的会话记录，因此需要：
+启动后月兔娘出现在屏幕右下角。**验证连接是否成功**：点击她，气泡里显示
+「本周额度剩余 X%」和「5 小时窗口：已用 X%」就说明官方数据已接通；
+显示「未知」则看她头顶菜单 → 数据源，确认是 `自动` 模式。
 
-- 已安装并登录 [Kimi Code CLI](https://www.kimi.com/code/docs/en/)（`kimi` 命令可用）
-- 正常使用过 Kimi Code（产生过会话记录，记账模式才有数据）
+### 第四步（可选）：让她常驻
+
+- **开机自启**：右键 exe → 创建快捷方式，把快捷方式放进
+  `Win+R` → `shell:startup` 打开的文件夹里
+- **换形象/声音/视频**：菜单里的角色图库、音效片段库、视频库都支持
+  导入自己的素材；随时一键恢复默认
+- **退出**：右键她 → 菜单 →「退出挂件」，或右键托盘图标
+
+### 常见问题
+
+- **额度显示「未知」**：记账模式兜底中只有 token 绝对值没有官方百分比，
+  属正常降级；确保数据源是 `自动` 且能正常打开 Kimi Code CLI（CLI 解析
+  数据源会后台拉起一个隐藏的 `kimi` 进程执行 `/usage`，杀毒软件可能拦截）
+- **周额度百分比和手算对不上**：CLI 解析失败时会退回本地记账模式，
+  只统计本机消耗；多设备使用以 Kimi Code 控制台为准
+- **她没声音**：菜单里音效开关默认开，检查音量不是 0
 
 ## 数据获取原理
 

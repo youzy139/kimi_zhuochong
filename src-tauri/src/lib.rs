@@ -268,6 +268,80 @@ fn bubble_img_path(state: tauri::State<'_, Mutex<AppState>>, id: String) -> Opti
     Some(config::bubble_imgs_dir().join(&entry.file).to_string_lossy().to_string())
 }
 
+// ---------- 视频库（开心笑/读书/小憩三个槽位可换） ----------
+
+#[tauri::command]
+fn list_videos(state: tauri::State<'_, Mutex<AppState>>) -> serde_json::Value {
+    match state.lock() {
+        Ok(g) => serde_json::json!({
+            "videos": g.cfg.videos,
+            "slots": {
+                "happy": g.cfg.video_happy,
+                "reading": g.cfg.video_reading,
+                "nap": g.cfg.video_nap,
+            }
+        }),
+        Err(_) => serde_json::json!({ "videos": [], "slots": {} }),
+    }
+}
+
+#[tauri::command]
+fn import_video(state: tauri::State<'_, Mutex<AppState>>, path: String) -> Result<config::AssetEntry, String> {
+    let entry = import_asset(&path, &config::videos_dir(), 50 * 1024 * 1024)?;
+    let mut g = state.lock().map_err(|_| "状态锁失败")?;
+    g.cfg.videos.push(entry.clone());
+    config::save(&g.cfg);
+    Ok(entry)
+}
+
+/// 设置槽位视频：slot ∈ happy|reading|nap，id 为 null 时恢复该槽位默认视频
+#[tauri::command]
+fn set_video_slot(state: tauri::State<'_, Mutex<AppState>>, slot: String, id: Option<String>) -> Result<(), String> {
+    let mut g = state.lock().map_err(|_| "状态锁失败")?;
+    if let Some(ref vid) = id {
+        if !g.cfg.videos.iter().any(|v| &v.id == vid) {
+            return Err("视频不存在".to_string());
+        }
+    }
+    match slot.as_str() {
+        "happy" => g.cfg.video_happy = id,
+        "reading" => g.cfg.video_reading = id,
+        "nap" => g.cfg.video_nap = id,
+        _ => return Err("未知槽位".to_string()),
+    }
+    config::save(&g.cfg);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_video(state: tauri::State<'_, Mutex<AppState>>, id: String) {
+    if let Ok(mut g) = state.lock() {
+        if let Some(pos) = g.cfg.videos.iter().position(|v| v.id == id) {
+            let entry = g.cfg.videos.remove(pos);
+            delete_asset_file(&config::videos_dir(), &entry.file);
+        }
+        // 引用该视频的槽位一并回退默认
+        if g.cfg.video_happy.as_deref() == Some(id.as_str()) {
+            g.cfg.video_happy = None;
+        }
+        if g.cfg.video_reading.as_deref() == Some(id.as_str()) {
+            g.cfg.video_reading = None;
+        }
+        if g.cfg.video_nap.as_deref() == Some(id.as_str()) {
+            g.cfg.video_nap = None;
+        }
+        config::save(&g.cfg);
+    }
+}
+
+/// 视频完整路径（前端 convertFileSrc 播放/试用）
+#[tauri::command]
+fn video_path(state: tauri::State<'_, Mutex<AppState>>, id: String) -> Option<String> {
+    let g = state.lock().ok()?;
+    let entry = g.cfg.videos.iter().find(|v| v.id == id)?;
+    Some(config::videos_dir().join(&entry.file).to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -293,7 +367,12 @@ pub fn run() {
             list_bubble_imgs,
             import_bubble_img,
             delete_bubble_img,
-            bubble_img_path
+            bubble_img_path,
+            list_videos,
+            import_video,
+            set_video_slot,
+            delete_video,
+            video_path
         ])
         .setup(|app| {
             // 系统托盘：无边框+跳过任务栏的窗口没有别的关闭入口，托盘是唯一的退出通道

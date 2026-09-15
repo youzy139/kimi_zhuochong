@@ -56,6 +56,12 @@ pub struct Config {
     pub audio_fragments: Vec<AssetEntry>,
     /// 泡泡图库（用户上传部分；内置图在前端 assets）
     pub bubble_images: Vec<AssetEntry>,
+    /// 视频库（用户上传部分）
+    pub videos: Vec<AssetEntry>,
+    /// 视频槽位：开心笑 / 读书 / 小憩（值为视频库条目 id，None=用内置默认视频）
+    pub video_happy: Option<String>,
+    pub video_reading: Option<String>,
+    pub video_nap: Option<String>,
     /// "auto" | "ledger" | "cli"
     pub data_source: String,
     pub weekly_quota_tokens: Option<u64>,
@@ -87,6 +93,10 @@ impl Default for Config {
             roles: Vec::new(),
             audio_fragments: Vec::new(),
             bubble_images: Vec::new(),
+            videos: Vec::new(),
+            video_happy: None,
+            video_reading: None,
+            video_nap: None,
             data_source: "auto".to_string(),
             weekly_quota_tokens: None,
             window5h_warn_tokens: None,
@@ -136,6 +146,10 @@ pub fn audio_dir() -> PathBuf {
 }
 pub fn bubble_imgs_dir() -> PathBuf {
     home_dir().join(".kimi-rabbit-widget").join("bubble-imgs")
+}
+/// 视频库目录
+pub fn videos_dir() -> PathBuf {
+    home_dir().join(".kimi-rabbit-widget").join("videos")
 }
 
 /// 读取配置；文件缺失或损坏时回退默认值

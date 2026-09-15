@@ -181,10 +181,10 @@ var css = [
   '.krw-number{width:64px;border:1px solid rgba(154,143,208,.4);border-radius:6px;padding:2px 4px;font-size:12px;color:' + C_TEXT + ';background:rgba(154,143,208,.12);box-sizing:border-box}',
   '.krw-select{flex:1;border:1px solid rgba(154,143,208,.4);border-radius:6px;background:rgba(154,143,208,.12);color:' + C_TEXT + ';font-size:12px;padding:3px 0;cursor:pointer}',
   // 下拉展开列表不受 color-scheme:dark 控制，需显式指定深色底浅色字，否则选中项白底白字看不见
-  '.krw-select option{background:#241f4a;color:' + C_TEXT + '}',
-  // 选中项：深紫底白字（原生高亮色反差太刺眼）；悬停项：稍亮的紫
+  '.krw-select option{background:#474a5c;color:' + C_TEXT + '}',
+  // 选中项：蓝紫底白字；未选项灰底；悬停稍亮的灰
   '.krw-select option:checked{background:#4a3f8f;color:#fff}',
-  '.krw-select option:hover{background:#352c66}',
+  '.krw-select option:hover{background:#565a70}',
   '.krw-check{width:16px;height:16px;accent-color:#9a8fd0;cursor:pointer;flex:0 0 auto}',
   '.krw-menu-sep{height:1px;background:rgba(154,143,208,.25);margin:6px 0}',
   '.krw-volpct{width:40px;text-align:right;color:' + C_SUB + ';font-size:12px}',
@@ -531,6 +531,32 @@ var bubListEl = document.createElement('div')
 bubListEl.className = 'krw-list'
 var bubHint = document.createElement('span')
 bubHint.className = 'krw-menu-hint'
+// 视频库：三个槽位下拉（默认 + 库条目）+ 导入 + 列表（试看 / 删除）
+var VIDEO_SLOT_KEYS = ['happy', 'reading', 'nap']
+var VIDEO_SLOT_LABELS = { happy: '开心笑', reading: '读书', nap: '小憩' }
+var videoSlotSels = {}
+for (var vsi = 0; vsi < VIDEO_SLOT_KEYS.length; vsi++) {
+  (function (key) {
+    var sel = document.createElement('select')
+    sel.className = 'krw-select'
+    sel.title = VIDEO_SLOT_LABELS[key] + '槽位视频（默认 = 内置素材）'
+    sel.addEventListener('change', function () { setVideoSlot(key, sel.value || null) })
+    videoSlotSels[key] = sel
+  })(VIDEO_SLOT_KEYS[vsi])
+}
+var videoPathInput = document.createElement('input')
+videoPathInput.type = 'text'
+videoPathInput.className = 'krw-text-input'
+videoPathInput.placeholder = '视频绝对路径（≤50MB）'
+var videoImportBtn = document.createElement('button')
+videoImportBtn.type = 'button'
+videoImportBtn.className = 'krw-sound'
+videoImportBtn.textContent = '导入'
+videoImportBtn.addEventListener('click', function (e) { e.stopPropagation(); importVideo() })
+var videoListEl = document.createElement('div')
+videoListEl.className = 'krw-list'
+var videoHint = document.createElement('span')
+videoHint.className = 'krw-menu-hint'
 // 边缘吸附开关（关闭时松手留在释放点）
 var snapToggle = document.createElement('input')
 snapToggle.type = 'checkbox'
@@ -560,6 +586,11 @@ var rA1 = menuRow(); rA1.appendChild(menuLabel('音效片段')); rA1.appendChild
 var rA2 = menuRow(); rA2.appendChild(audioHint)
 var rB1 = menuRow(); rB1.appendChild(menuLabel('泡泡图')); rB1.appendChild(bubPathInput); rB1.appendChild(bubAddBtn)
 var rB2 = menuRow(); rB2.appendChild(bubHint)
+var rV1 = menuRow(); rV1.appendChild(menuLabel('开心笑')); rV1.appendChild(videoSlotSels.happy)
+var rV2 = menuRow(); rV2.appendChild(menuLabel('读书')); rV2.appendChild(videoSlotSels.reading)
+var rV3 = menuRow(); rV3.appendChild(menuLabel('小憩')); rV3.appendChild(videoSlotSels.nap)
+var rV4 = menuRow(); rV4.appendChild(menuLabel('视频')); rV4.appendChild(videoPathInput); rV4.appendChild(videoImportBtn)
+var rV5 = menuRow(); rV5.appendChild(videoHint)
 var sep = document.createElement('div'); sep.className = 'krw-menu-sep'
 // 退出行：无边框窗口没有标题栏关闭按钮，菜单里给一个显式出口（托盘也可退出）
 var quitBtn = document.createElement('button')
@@ -593,6 +624,12 @@ menuBox.appendChild(rA2)
 menuBox.appendChild(rB1)
 menuBox.appendChild(bubListEl)
 menuBox.appendChild(rB2)
+menuBox.appendChild(rV1)
+menuBox.appendChild(rV2)
+menuBox.appendChild(rV3)
+menuBox.appendChild(rV4)
+menuBox.appendChild(videoListEl)
+menuBox.appendChild(rV5)
 menuBox.appendChild(sep)
 menuBox.appendChild(fuelRow)
 menuBox.appendChild(r7)
@@ -1104,6 +1141,7 @@ function blink(times) {
 }
 // 点击互动：50% 眨眼 / 50% 开心笑
 function reactClick() {
+  stopPreviewVideo(false)   // 试看中的库视频先停掉（再点兔娘 = 停止试看）
   toStatic(false)
   if (Math.random() < 0.5 || videoDead) {
     rabbitState = 'wink'
@@ -1117,11 +1155,14 @@ function reactClick() {
 // 之后 75 秒无操作再插播下一段，任何互动立即唤醒并恢复 3 分钟计时
 function startIdleAction() {
   if (rabbitState !== 'static' || videoDead) return
+  stopPreviewVideo(true)   // 试看中的库视频先停掉再插播
   rabbitState = 'idle'
   var url = Math.random() < 0.5 ? VIDEO_URLS.reading : VIDEO_URLS.nap
   if (!playVideoFor(url, 0)) toStatic(false)   // ms=0 → 不定时，靠 ended 事件收场
 }
 videoEl.addEventListener('ended', function () {
+  // 试看播完：停止并回静态图（不进入 idle 的插播节奏）
+  if (previewingVideo) { stopPreviewVideo(true); return }
   if (rabbitState !== 'idle') return
   toStatic(true)
   // 播完一轮后缩短下次等待（插播感，而不是死等 3 分钟）
@@ -1183,23 +1224,6 @@ function window5hText() {
   }
   return { t: t, c: cmap[st] }
 }
-function buildStatusGroup() {
-  var rp = remainPercent()
-  var w5 = window5hText()
-  if (rp === null) {
-    var used = state.usage && state.usage.week ? state.usage.week.used_tokens : null
-    return [
-      { t: '本周已用 token', s: 'A', c: '' },
-      { t: fmtInt(used), s: 'B', c: '' },
-      { t: countdownText() + ' · ' + w5.t, s: 'C', c: w5.c },
-    ]
-  }
-  return [
-    { t: '本周额度剩余', s: 'A', c: '' },
-    { t: rp.toFixed(1) + '%', s: 'P', c: rp < 20 ? C_WARN : C_TEXT },
-    { t: countdownText() + ' · ' + w5.t, s: 'C', c: w5.c },
-  ]
-}
 var LINES_CALM = [
   '今晚的月色很好，适合写代码。',
   '我在月球背面，帮你看着额度呢。',
@@ -1216,12 +1240,13 @@ var LINES_ANXIOUS = [
   '呜……再这样用下去，我要吃土了。',
   '额度不足两成了，后面的路省着点走……'
 ]
-// 加权随机台词组：额度 <20% 时「着急」组权重反超日常组
+// 加权随机台词组：额度 <20% 时「着急」组权重反超日常组。
+// 注意：不含数据状态组——「本周额度」只出现在状态泡（点按第一段），
+// 随机段里再放一份就是用户看到的「气泡内容重复」
 function buildRandomGroups() {
   var rp = remainPercent()
   var low = rp !== null && rp < 20
   var groups = [
-    { w: low ? 20 : 42, lines: buildStatusGroup },
     { w: low ? 6 : 16, lines: function () { return singleCenter('A', pickOne(LINES_CALM), '', true) } },
     { w: 8, lines: function () { return singleCenter('B', pickOne(['月兔娘...↓', 'Zzz...'])) } },
     { w: 6, lines: function () { return { gif: true } } }
@@ -2227,6 +2252,155 @@ function deleteBubbleImg(id) {
     .catch(function (err) { setBubHint('删除失败：' + shortErr(err)) })
 }
 
+// ---------- 视频库 + 槽位自定义 ----------
+var videoList = []                                      // 库条目 [{id,name,file}]
+var videoSlots = { happy: null, reading: null, nap: null }   // 槽位绑定的库视频 id（null = 默认）
+var DEFAULT_VIDEO_URLS = {                              // 内置默认素材（解析时的回退值）
+  happy: VIDEO_URLS.happy,
+  reading: VIDEO_URLS.reading,
+  nap: VIDEO_URLS.nap
+}
+function setVideoHint(t) { videoHint.textContent = t || '' }
+// 把三个槽位解析成实际 URL 写回 VIDEO_URLS：槽位有绑定 → video_path → fileSrc；
+// 无绑定 / 条目被删 / 文件丢失 → 回退该槽位默认。reactClick/startIdleAction 读的就是 VIDEO_URLS
+function resolveVideoUrls() {
+  VIDEO_URLS.happy = DEFAULT_VIDEO_URLS.happy
+  VIDEO_URLS.reading = DEFAULT_VIDEO_URLS.reading
+  VIDEO_URLS.nap = DEFAULT_VIDEO_URLS.nap
+  if (!isTauri) return
+  for (var i = 0; i < VIDEO_SLOT_KEYS.length; i++) {
+    (function (key) {
+      var id = videoSlots[key]
+      if (!id) return
+      invoke('video_path', { id: id })
+        .then(function (p) { VIDEO_URLS[key] = p ? fileSrc(p) : DEFAULT_VIDEO_URLS[key] })
+        .catch(function () { VIDEO_URLS[key] = DEFAULT_VIDEO_URLS[key] })
+    })(VIDEO_SLOT_KEYS[i])
+  }
+}
+function loadVideos() {
+  if (!isTauri) { renderVideoList(); rebuildVideoSlotSelects(); return }
+  invoke('list_videos')
+    .then(function (d) {
+      videoList = d && Array.isArray(d.videos) ? d.videos : []
+      var s = d && d.slots ? d.slots : {}
+      videoSlots.happy = s.happy || null
+      videoSlots.reading = s.reading || null
+      videoSlots.nap = s.nap || null
+      renderVideoList()
+      rebuildVideoSlotSelects()
+      resolveVideoUrls()
+    })
+    .catch(function () {})
+}
+// 槽位下拉：选项 = 默认 + 库条目；槽位引用的视频已删 → 回显「默认」
+function rebuildVideoSlotSelects() {
+  for (var i = 0; i < VIDEO_SLOT_KEYS.length; i++) {
+    var key = VIDEO_SLOT_KEYS[i]
+    var sel = videoSlotSels[key]
+    if (!sel) continue
+    sel.innerHTML = ''
+    sel.appendChild(menuOpt('', '默认'))
+    var cur = videoSlots[key]
+    var found = !cur
+    for (var j = 0; j < videoList.length; j++) {
+      sel.appendChild(menuOpt(videoList[j].id, videoList[j].name))
+      if (videoList[j].id === cur) found = true
+    }
+    sel.value = found ? (cur || '') : ''
+  }
+}
+function setVideoSlot(slot, id) {
+  if (!isTauri) return
+  invoke('set_video_slot', { slot: slot, id: id })   // 后端落盘，前端无需 saveConfig
+    .then(function () {
+      videoSlots[slot] = id || null
+      rebuildVideoSlotSelects()
+      resolveVideoUrls()
+      setVideoHint('')
+    })
+    .catch(function (err) {
+      setVideoHint('设置失败：' + shortErr(err))
+      rebuildVideoSlotSelects()   // 失败回显旧值
+    })
+}
+function importVideo() {
+  if (!isTauri) { setVideoHint('浏览器预览模式不支持视频库'); return }
+  var p = String(videoPathInput.value || '').trim()
+  if (!p) { setVideoHint('请先输入视频绝对路径'); return }
+  setVideoHint('导入中…')
+  invoke('import_video', { path: p })
+    .then(function () {
+      videoPathInput.value = ''
+      setVideoHint('已导入')
+      loadVideos()
+    })
+    .catch(function (err) { setVideoHint('失败：' + shortErr(err)) })
+}
+function deleteVideo(id) {
+  if (!isTauri) return
+  invoke('delete_video', { id: id })
+    .then(function () {
+      // 引用该视频的槽位后端自动回退默认；本地同步后重新解析
+      for (var i = 0; i < VIDEO_SLOT_KEYS.length; i++) {
+        if (videoSlots[VIDEO_SLOT_KEYS[i]] === id) videoSlots[VIDEO_SLOT_KEYS[i]] = null
+      }
+      loadVideos()
+    })
+    .catch(function (err) { setVideoHint('删除失败：' + shortErr(err)) })
+}
+function renderVideoList() {
+  videoListEl.innerHTML = ''
+  if (!isTauri) {
+    videoPathInput.disabled = true
+    videoImportBtn.disabled = true
+    for (var k = 0; k < VIDEO_SLOT_KEYS.length; k++) videoSlotSels[VIDEO_SLOT_KEYS[k]].disabled = true
+    videoListEl.appendChild(panelEl('div', 'krw-menu-hint', '浏览器预览模式不支持视频库'))
+    return
+  }
+  if (!videoList.length) {
+    videoListEl.appendChild(panelEl('div', 'krw-menu-hint', '还没有视频，导入一个吧'))
+    return
+  }
+  for (var i = 0; i < videoList.length; i++) {
+    (function (v) {
+      var row = panelEl('div', 'krw-list-row')
+      var name = panelEl('span', 'krw-list-name', v.name)
+      name.title = v.name
+      row.appendChild(name)
+      var playBtn = panelEl('button', 'krw-sound krw-mini', '试看')
+      playBtn.type = 'button'
+      playBtn.title = '在角色圆形层上播放一遍（仅静态待机时可用）'
+      playBtn.addEventListener('click', function (e) { e.stopPropagation(); previewVideo(v.id) })
+      row.appendChild(playBtn)
+      var delBtn = panelEl('button', 'krw-sound krw-mini', '删除')
+      delBtn.type = 'button'
+      delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteVideo(v.id) })
+      row.appendChild(delBtn)
+      videoListEl.appendChild(row)
+    })(videoList[i])
+  }
+}
+// 试看：仅静态待机时可用——复用 videoEl 播放一遍（不动 rabbitState），
+// ended 或再次点击兔娘 / 触发插播时停止并回静态图（见状态机里的 stopPreviewVideo 调用点）
+var previewingVideo = false
+function previewVideo(id) {
+  if (!isTauri) return
+  if (rabbitState !== 'static' || previewingVideo || videoDead) return
+  invoke('video_path', { id: id })
+    .then(function (p) {
+      if (!p) { setVideoHint('视频文件不存在'); return }
+      if (rabbitState !== 'static' || previewingVideo) return   // 等待路径期间状态变了
+      if (playVideoFor(fileSrc(p), 0)) previewingVideo = true   // ms=0 → 靠 ended 收场
+    })
+    .catch(function () {})
+}
+function stopPreviewVideo(fade) {
+  if (!previewingVideo) return
+  previewingVideo = false
+  stopVideo(fade)   // 只停视频层，不动 rabbitState
+}
+
 // ---------- 启动 ----------
 setupSound()
 setupTaskEndSound()
@@ -2237,7 +2411,9 @@ render()
 renderRoleList()
 renderAudioList()
 renderBubbleImgList()
+renderVideoList()
 rebuildSlotSelects()
+rebuildVideoSlotSelects()
 if (isTauri) {
   // 启动换图：优先角色库 active（select_role 幂等）；无 active 则兼容旧的
   // get_custom_image，非空也换——两条路二选一，不重复换
@@ -2259,6 +2435,7 @@ if (isTauri) {
     .catch(function () {})
   loadAudioClips()
   loadBubbleImgs()
+  loadVideos()   // 视频库：拉槽位并解析 VIDEO_URLS
 }
 // 先读配置恢复（含位置），再开始刷新
 invoke('get_config')
