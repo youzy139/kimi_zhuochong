@@ -244,7 +244,7 @@ winkImg.draggable = false
 var videoEl = document.createElement('video')
 videoEl.className = 'krw-video'
 videoEl.muted = true            // 静音才能自动播放
-videoEl.loop = true
+videoEl.loop = false          // 插播式设计：每段视频只播一遍，靠 ended 事件收场
 videoEl.playsInline = true
 videoEl.preload = 'auto'
 var videoDead = false
@@ -1041,10 +1041,12 @@ function pressUp() {
 // ---------- 月兔娘表情状态机 ----------
 // 基础 = 静态图；点击随机触发眨眼（wink 淡入淡出×2）或开心笑视频（约 3s 淡入淡出）；
 // 长时间无操作随机进入读书/小憩待机循环，任何互动唤醒。所有切换都走淡入淡出，不生硬
-var IDLE_MS = 180000          // 3 分钟无操作进入待机动作
+var IDLE_MS = 180000          // 首次/互动后：3 分钟无操作进入待机动作
+var IDLE_NEXT_MS = 75000      // 插播结束后：75 秒无操作再播下一段
 var rabbitState = 'static'    // static | wink | happy | idle
 var reactTimer = null
 var lastActive = Date.now()
+var idleWaitMs = IDLE_MS
 
 // display:none ↔ block 无法直接做过渡，先显形再下一帧抬 opacity
 function showLayer(el) {
@@ -1111,20 +1113,29 @@ function reactClick() {
     if (!playVideoFor(VIDEO_URLS.happy, 3000)) toStatic(false)
   }
 }
-// 待机：随机读书 / 小憩，循环到被唤醒
+// 待机插播：随机读书 / 小憩，只播一遍（不循环），播完淡回静态图；
+// 之后 75 秒无操作再插播下一段，任何互动立即唤醒并恢复 3 分钟计时
 function startIdleAction() {
   if (rabbitState !== 'static' || videoDead) return
   rabbitState = 'idle'
   var url = Math.random() < 0.5 ? VIDEO_URLS.reading : VIDEO_URLS.nap
-  if (!playVideoFor(url, 0)) toStatic(false)   // ms=0 → 不自动结束
+  if (!playVideoFor(url, 0)) toStatic(false)   // ms=0 → 不定时，靠 ended 事件收场
 }
+videoEl.addEventListener('ended', function () {
+  if (rabbitState !== 'idle') return
+  toStatic(true)
+  // 播完一轮后缩短下次等待（插播感，而不是死等 3 分钟）
+  idleWaitMs = IDLE_NEXT_MS
+  lastActive = Date.now()
+})
 // 任何互动：重置待机计时，唤醒待机中的兔娘（淡出回静态图）
 function markActive() {
   lastActive = Date.now()
+  idleWaitMs = IDLE_MS
   if (rabbitState === 'idle') toStatic(true)
 }
 setInterval(function () {
-  if (Date.now() - lastActive >= IDLE_MS) startIdleAction()
+  if (Date.now() - lastActive >= idleWaitMs) startIdleAction()
 }, 15000)
 
 function setSoundSet(v, silent) {
@@ -1342,6 +1353,9 @@ function showBubble() {
 }
 // 切到下一个加权随机台词段（重置 5 秒自动收起计时）
 function showRandomSegment() {
+  // 清掉状态内容残留的延迟写入（setHint 淡出计时器），防止覆盖台词
+  if (hintFadeTimer) { clearTimeout(hintFadeTimer); hintFadeTimer = null }
+  lastHintText = null
   bubbleRandomActive = true
   bubbleRandomLines = pickRandomLines()
   swapBubbleContent(function () { applyBubbleLines(bubbleRandomLines) })
@@ -1470,6 +1484,12 @@ function animateAmount(from, to, suffix, duration) {
 // ---------- 渲染 ----------
 function render() {
   if (costBubbleActive) return
+  // 随机台词段显示期间：只重排台词，不写入任何状态内容——否则「本周额度」
+  // 状态行会先写进元素再被台词覆盖，竞态下两类内容重复同屏
+  if (bubbleRandomActive && bubbleRandomLines) {
+    applyBubbleLines(bubbleRandomLines)
+    return
+  }
   var u = state.usage
   if (state.status === 'error') {
     labelEl.textContent = 'Kimi 本周额度'
@@ -1502,13 +1522,9 @@ function render() {
     barEl.style.display = 'none'
     setHint(countdownText() + ' · 未设上限')
   }
-  if (bubbleRandomActive && bubbleRandomLines) {
-    applyBubbleLines(bubbleRandomLines)
-  } else {
-    statusEl.style.display = ''
-    statusEl.textContent = w5.t
-    statusEl.style.color = w5.c
-  }
+  statusEl.style.display = ''
+  statusEl.textContent = w5.t
+  statusEl.style.color = w5.c
 }
 
 // ---------- 数据刷新 ----------
