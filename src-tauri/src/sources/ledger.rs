@@ -185,6 +185,11 @@ impl LedgerSource {
             window5h: Window5h {
                 used_tokens: win_used,
                 warn_threshold: cfg.window5h_warn_tokens,
+                // ledger 无官方百分比；若用户设过 token 阈值则按阈值估算一个
+                percent: cfg
+                    .window5h_warn_tokens
+                    .filter(|t| *t > 0)
+                    .map(|t| win_used as f64 / t as f64 * 100.0),
                 status: status.to_string(),
             },
             fuel_pack: None,

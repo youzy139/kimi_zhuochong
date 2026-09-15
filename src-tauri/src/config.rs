@@ -11,6 +11,15 @@ pub struct Pos {
     pub y: i32,
 }
 
+/// 资源库条目：角色图 / 音效片段 / 泡泡图共用（文件存配置目录子文件夹，这里存索引）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AssetEntry {
+    pub id: String,
+    pub name: String,
+    /// 文件名（相对各自库目录）
+    pub file: String,
+}
+
 /// 挂件配置，JSON 字段一律 snake_case（前端契约，一字不能差）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case", default)]
@@ -18,8 +27,11 @@ pub struct Config {
     pub scale: f64,
     pub volume: f64,
     pub sound_on: bool,
-    /// "duck"（小黄鸭 Ya1/Ya2）| "fx1"（叮叮咚咚 D1/D2）
+    /// "duck"（小黄鸭 Ya1/Ya2）| "fx1"（叮叮咚咚 D1/D2）| "custom"（片段库组合）
     pub sound_set: String,
+    /// 自定义音效组：片段 id（sound_set="custom" 时生效，None=该事件静音）
+    pub custom_press: Option<String>,
+    pub custom_release: Option<String>,
     pub bubble_on: bool,
     pub turn_cost_on: bool,
     /// 每轮消耗泡泡自动关闭毫秒数，0 = 不自动关闭
@@ -32,6 +44,18 @@ pub struct Config {
     pub task_end_sound: String,
     /// 隐藏右上角菜单按钮（隐藏后右键角色唤出菜单）
     pub hide_menu_btn: bool,
+    /// 5h 窗口已用百分比预警线（官方口径，默认 90：用到九成该小心了）
+    pub window5h_warn_percent: f64,
+    /// 四边四分之一吸附开关；关闭后自由摆放
+    pub snap_on: bool,
+    /// 当前启用的角色图 id（None=默认兔娘）
+    pub active_role: Option<String>,
+    /// 角色图库
+    pub roles: Vec<AssetEntry>,
+    /// 音效片段库
+    pub audio_fragments: Vec<AssetEntry>,
+    /// 泡泡图库（用户上传部分；内置图在前端 assets）
+    pub bubble_images: Vec<AssetEntry>,
     /// "auto" | "ledger" | "cli"
     pub data_source: String,
     pub weekly_quota_tokens: Option<u64>,
@@ -48,6 +72,8 @@ impl Default for Config {
             volume: 0.9,
             sound_on: true,
             sound_set: "duck".to_string(),
+            custom_press: None,
+            custom_release: None,
             bubble_on: true,
             turn_cost_on: true,
             turn_cost_close_ms: 5000,
@@ -55,6 +81,12 @@ impl Default for Config {
             task_end_sound_on: false,
             task_end_sound: "orb".to_string(),
             hide_menu_btn: false,
+            window5h_warn_percent: 90.0,
+            snap_on: true,
+            active_role: None,
+            roles: Vec::new(),
+            audio_fragments: Vec::new(),
+            bubble_images: Vec::new(),
             data_source: "auto".to_string(),
             weekly_quota_tokens: None,
             window5h_warn_tokens: None,
@@ -93,6 +125,17 @@ pub fn custom_image_path() -> PathBuf {
     home_dir()
         .join(".kimi-rabbit-widget")
         .join("custom-rabbit.png")
+}
+
+/// 资源库目录：角色图 / 音效片段 / 泡泡图
+pub fn roles_dir() -> PathBuf {
+    home_dir().join(".kimi-rabbit-widget").join("roles")
+}
+pub fn audio_dir() -> PathBuf {
+    home_dir().join(".kimi-rabbit-widget").join("audio")
+}
+pub fn bubble_imgs_dir() -> PathBuf {
+    home_dir().join(".kimi-rabbit-widget").join("bubble-imgs")
 }
 
 /// 读取配置；文件缺失或损坏时回退默认值

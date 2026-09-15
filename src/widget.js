@@ -202,12 +202,18 @@ var css = [
   '.krw-usage-sec{margin:12px 0}',
   '.krw-usage-h{font-size:12px;color:' + C_SUB + ';margin-bottom:6px;letter-spacing:.05em}',
   '.krw-usage-row{display:flex;align-items:center;gap:8px;font-size:12px;margin:4px 0}',
-  '.krw-usage-date{flex:0 0 76px;color:' + C_SUB + '}',
+  '.krw-usage-date{flex:0 0 76px;color:' + C_SUB + ';overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   '.krw-usage-bar{flex:1;min-width:40px;height:8px;border-radius:4px;background:rgba(154,143,208,.22);overflow:hidden}',
   '.krw-usage-bar-fill{height:100%;border-radius:inherit;background:linear-gradient(90deg,#9a8fd0,#d5dcf0)}',
   '.krw-usage-num{flex:0 0 auto;text-align:right;font-variant-numeric:tabular-nums}',
   '.krw-usage-sub{font-size:11px;color:' + C_SUB + ';margin:2px 0 8px 84px;word-break:break-all}',
-  '.krw-usage-empty{text-align:center;color:' + C_SUB + ';padding:40px 0;font-size:13px}'
+  '.krw-usage-empty{text-align:center;color:' + C_SUB + ';padding:40px 0;font-size:13px}',
+  // 菜单内库管理列表（角色 / 音效片段 / 泡泡图）
+  '.krw-list{display:flex;flex-direction:column;gap:3px;margin:2px 0 4px;max-height:120px;overflow-y:auto}',
+  '.krw-list-row{display:flex;align-items:center;gap:6px;font-size:12px;color:' + C_TEXT + '}',
+  '.krw-list-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+  '.krw-thumb{width:22px;height:22px;object-fit:cover;border-radius:4px;flex:0 0 auto}',
+  '.krw-mini{padding:1px 6px;font-size:11px;flex:0 0 auto}'
 ].join('\n')
 
 var styleEl = document.createElement('style')
@@ -275,14 +281,33 @@ textBox.appendChild(amountEl)
 textBox.appendChild(barEl)
 textBox.appendChild(hintEl)
 textBox.appendChild(statusEl)
-// 随机台词动图（加载失败时 gifFailed=true，台词组降级为文字）
+// 随机台词动图：从候选池随机抽一张（内置 petpet/money/rua + 用户上传）。
+// 每张图独立失败标记：某张加载失败只把它从候选剔除，全部失败才降级为文字台词
 var gifEl = document.createElement('img')
 gifEl.className = 'krw-gif'
-gifEl.src = GIF_URL
 gifEl.alt = ''
 gifEl.draggable = false
-var gifFailed = false
-gifEl.addEventListener('error', function () { gifFailed = true })
+var bubbleGifCands = [
+  { url: 'assets/petpet.gif', failed: false, id: null, name: 'petpet（内置）' },
+  { url: 'assets/money1.gif', failed: false, id: null, name: 'money（内置）' },
+  { url: GIF_URL, failed: false, id: null, name: 'rua（内置）' }
+]
+function pickGifCandidate() {
+  var avail = []
+  for (var i = 0; i < bubbleGifCands.length; i++) if (!bubbleGifCands[i].failed) avail.push(bubbleGifCands[i])
+  return avail.length ? pickOne(avail) : null
+}
+gifEl.addEventListener('error', function () {
+  var src = gifEl.getAttribute('src')
+  for (var i = 0; i < bubbleGifCands.length; i++) {
+    if (bubbleGifCands[i].url === src) bubbleGifCands[i].failed = true
+  }
+  // 展示中的图挂了：立刻换一张候选，全灭则走降级文字
+  if (gifEl.style.display === 'block' && bubbleRandomActive && bubbleRandomLines && bubbleRandomLines.gif) {
+    bubbleRandomLines._cand = null
+    applyBubbleLines(bubbleRandomLines)
+  }
+})
 bubbleBox.appendChild(gifEl)
 bubbleBox.appendChild(textBox)
 
@@ -355,7 +380,32 @@ var soundSetSelect = document.createElement('select')
 soundSetSelect.className = 'krw-select'
 soundSetSelect.appendChild(menuOpt('duck', '小黄鸭'))
 soundSetSelect.appendChild(menuOpt('fx1', '叮叮咚咚'))
+soundSetSelect.appendChild(menuOpt('custom', '自定义'))
 soundSetSelect.addEventListener('change', function () { setSoundSet(soundSetSelect.value) })
+// 自定义套装的按压/松手槽位（选项 = 片段库片段 + （静音）），仅 custom 时显示
+var pressSlotSel = document.createElement('select')
+pressSlotSel.className = 'krw-select'
+pressSlotSel.title = '按压音（自定义套装）'
+pressSlotSel.addEventListener('change', function () {
+  customPress = pressSlotSel.value || null
+  saveConfig({ custom_press: customPress })
+  setupSound()
+})
+var releaseSlotSel = document.createElement('select')
+releaseSlotSel.className = 'krw-select'
+releaseSlotSel.title = '松手音（自定义套装）'
+releaseSlotSel.addEventListener('change', function () {
+  customRelease = releaseSlotSel.value || null
+  saveConfig({ custom_release: customRelease })
+  setupSound()
+})
+var customSlotRow = menuRow()
+customSlotRow.style.flexWrap = 'wrap'
+customSlotRow.appendChild(menuLabel('按压'))
+customSlotRow.appendChild(pressSlotSel)
+customSlotRow.appendChild(menuLabel('松手'))
+customSlotRow.appendChild(releaseSlotSel)
+customSlotRow.style.display = 'none'
 // 气泡 / 每轮消耗开关
 var bubbleToggle = document.createElement('input')
 bubbleToggle.type = 'checkbox'
@@ -387,20 +437,15 @@ sourceSelect.appendChild(menuOpt('ledger', '本地记账'))
 sourceSelect.appendChild(menuOpt('cli', 'CLI /usage 解析'))
 sourceSelect.addEventListener('change', function () { setDataSource(sourceSelect.value) })
 // 周额度上限 / 5h 告警阈值
-var quotaInput = document.createElement('input')
-quotaInput.type = 'number'
-quotaInput.min = '0'
-quotaInput.step = '1000'
-quotaInput.className = 'krw-number'
-quotaInput.title = '每周额度上限（token 数），0 表示未设置'
-quotaInput.addEventListener('change', function () { setWeeklyQuota(quotaInput.value) })
-var warnInput = document.createElement('input')
-warnInput.type = 'number'
-warnInput.min = '0'
-warnInput.step = '1000'
-warnInput.className = 'krw-number'
-warnInput.title = '5 小时滚动窗口的告警阈值（token 数）'
-warnInput.addEventListener('change', function () { setWarnTokens(warnInput.value) })
+// 5h 窗口预警线（官方百分比口径：用到 X% 该小心了）
+var warn5hPctInput = document.createElement('input')
+warn5hPctInput.type = 'number'
+warn5hPctInput.min = '0'
+warn5hPctInput.max = '100'
+warn5hPctInput.step = '5'
+warn5hPctInput.className = 'krw-number'
+warn5hPctInput.title = '5 小时窗口已用百分比达到该值时告警，默认 90'
+warn5hPctInput.addEventListener('change', function () { setWarn5hPct(warn5hPctInput.value) })
 // 任务结束音：开关 + 套装（经验球 / 音效 A），追加在「每轮消耗」行
 var taskEndToggle = document.createElement('input')
 taskEndToggle.type = 'checkbox'
@@ -439,7 +484,7 @@ usageBtn.className = 'krw-sound'
 usageBtn.textContent = '用量记录'
 usageBtn.title = '查看按天 / 按模型的 token 用量统计'
 usageBtn.addEventListener('click', function (e) { e.stopPropagation(); openUsagePanel() })
-// 自定义角色图：路径输入 + 应用 / 恢复默认
+// 角色图库：路径输入 + 添加 / 列表 / 恢复默认
 var imgPathInput = document.createElement('input')
 imgPathInput.type = 'text'
 imgPathInput.className = 'krw-text-input'
@@ -447,15 +492,52 @@ imgPathInput.placeholder = '图片绝对路径'
 var imgApplyBtn = document.createElement('button')
 imgApplyBtn.type = 'button'
 imgApplyBtn.className = 'krw-sound'
-imgApplyBtn.textContent = '应用'
-imgApplyBtn.addEventListener('click', function (e) { e.stopPropagation(); applyCustomImage() })
+imgApplyBtn.textContent = '添加'
+imgApplyBtn.addEventListener('click', function (e) { e.stopPropagation(); addRole() })
+var roleListEl = document.createElement('div')
+roleListEl.className = 'krw-list'
 var imgHint = document.createElement('span')
 imgHint.className = 'krw-menu-hint'
 var imgResetBtn = document.createElement('button')
 imgResetBtn.type = 'button'
 imgResetBtn.className = 'krw-sound'
 imgResetBtn.textContent = '恢复默认'
-imgResetBtn.addEventListener('click', function (e) { e.stopPropagation(); resetCustomImage() })
+imgResetBtn.addEventListener('click', function (e) { e.stopPropagation(); resetRole() })
+// 音效片段库：路径输入 + 导入 / 列表（试听 / 删除）
+var audioPathInput = document.createElement('input')
+audioPathInput.type = 'text'
+audioPathInput.className = 'krw-text-input'
+audioPathInput.placeholder = '音频文件绝对路径'
+var audioImportBtn = document.createElement('button')
+audioImportBtn.type = 'button'
+audioImportBtn.className = 'krw-sound'
+audioImportBtn.textContent = '导入'
+audioImportBtn.addEventListener('click', function (e) { e.stopPropagation(); importAudio() })
+var audioListEl = document.createElement('div')
+audioListEl.className = 'krw-list'
+var audioHint = document.createElement('span')
+audioHint.className = 'krw-menu-hint'
+// 泡泡图库：路径输入 + 添加 / 列表（缩略图 + 删除）
+var bubPathInput = document.createElement('input')
+bubPathInput.type = 'text'
+bubPathInput.className = 'krw-text-input'
+bubPathInput.placeholder = 'gif 绝对路径'
+var bubAddBtn = document.createElement('button')
+bubAddBtn.type = 'button'
+bubAddBtn.className = 'krw-sound'
+bubAddBtn.textContent = '添加'
+bubAddBtn.addEventListener('click', function (e) { e.stopPropagation(); addBubbleImg() })
+var bubListEl = document.createElement('div')
+bubListEl.className = 'krw-list'
+var bubHint = document.createElement('span')
+bubHint.className = 'krw-menu-hint'
+// 边缘吸附开关（关闭时松手留在释放点）
+var snapToggle = document.createElement('input')
+snapToggle.type = 'checkbox'
+snapToggle.className = 'krw-check'
+snapToggle.checked = true
+snapToggle.title = '松手时按屏幕四边四分之一吸附；关闭后留在释放点'
+snapToggle.addEventListener('change', function () { setSnapOn(snapToggle.checked) })
 // 加油包（fuel_pack 为 null 时整行隐藏）
 var fuelRow = menuRow()
 var fuelValue = document.createElement('span')
@@ -468,12 +550,16 @@ var r1 = menuRow(); r1.appendChild(menuLabel('大小')); r1.appendChild(scaleInp
 var r2 = menuRow(); r2.appendChild(menuLabel('音效')); r2.appendChild(soundToggle); r2.appendChild(soundSetSelect); r2.appendChild(volInput); r2.appendChild(volPct)
 var r3 = menuRow(); r3.style.flexWrap = 'wrap'; r3.appendChild(menuLabel('气泡')); r3.appendChild(bubbleToggle); r3.appendChild(menuLabel('每轮消耗')); r3.appendChild(turnCostToggle); r3.appendChild(turnCostCloseInput); r3.appendChild(menuLabel('秒')); r3.appendChild(menuLabel('结束音')); r3.appendChild(taskEndToggle); r3.appendChild(taskEndSel)
 var r4 = menuRow(); r4.appendChild(menuLabel('数据源')); r4.appendChild(sourceSelect)
-var r5 = menuRow(); r5.appendChild(menuLabel('周额度上限')); r5.appendChild(quotaInput)
-var r6 = menuRow(); r6.appendChild(menuLabel('5h 告警阈值')); r6.appendChild(warnInput)
+var r5 = menuRow(); r5.appendChild(menuLabel('5h 预警线 %')); r5.appendChild(warn5hPctInput)
 var r8 = menuRow(); r8.appendChild(menuLabel('预警线 %')); r8.appendChild(warnPctInput); r8.appendChild(menuLabel('隐藏按钮')); r8.appendChild(hideBtnToggle)
+var r13 = menuRow(); r13.appendChild(menuLabel('边缘吸附')); r13.appendChild(snapToggle)
 var r9 = menuRow(); r9.appendChild(usageBtn)
 var r10 = menuRow(); r10.appendChild(menuLabel('角色图')); r10.appendChild(imgPathInput); r10.appendChild(imgApplyBtn)
 var r11 = menuRow(); r11.appendChild(imgHint); r11.appendChild(imgResetBtn)
+var rA1 = menuRow(); rA1.appendChild(menuLabel('音效片段')); rA1.appendChild(audioPathInput); rA1.appendChild(audioImportBtn)
+var rA2 = menuRow(); rA2.appendChild(audioHint)
+var rB1 = menuRow(); rB1.appendChild(menuLabel('泡泡图')); rB1.appendChild(bubPathInput); rB1.appendChild(bubAddBtn)
+var rB2 = menuRow(); rB2.appendChild(bubHint)
 var sep = document.createElement('div'); sep.className = 'krw-menu-sep'
 // 退出行：无边框窗口没有标题栏关闭按钮，菜单里给一个显式出口（托盘也可退出）
 var quitBtn = document.createElement('button')
@@ -491,14 +577,22 @@ quitBtn.addEventListener('click', function () {
 var r7 = menuRow(); r7.appendChild(quitBtn)
 menuBox.appendChild(r1)
 menuBox.appendChild(r2)
+menuBox.appendChild(customSlotRow)
 menuBox.appendChild(r3)
 menuBox.appendChild(r4)
 menuBox.appendChild(r5)
-menuBox.appendChild(r6)
 menuBox.appendChild(r8)
+menuBox.appendChild(r13)
 menuBox.appendChild(r9)
 menuBox.appendChild(r10)
+menuBox.appendChild(roleListEl)
 menuBox.appendChild(r11)
+menuBox.appendChild(rA1)
+menuBox.appendChild(audioListEl)
+menuBox.appendChild(rA2)
+menuBox.appendChild(rB1)
+menuBox.appendChild(bubListEl)
+menuBox.appendChild(rB2)
 menuBox.appendChild(sep)
 menuBox.appendChild(fuelRow)
 menuBox.appendChild(r7)
@@ -541,6 +635,12 @@ var win5hWarned = false     // 5h 窗口 warn 是否已主动弹过（独立标�
 var hideMenuBtn = false     // 隐藏悬停汉堡按钮（菜单仍可右键唤出）
 var usagePanel = null       // 用量记录面板 DOM（打开中为非 null）
 var savedWinRect = null     // 打开面板前的窗口尺寸与位置（关闭时恢复）
+var snapOn = true           // 边缘吸附开关（关闭时松手留在释放点）
+var customPress = null      // 自定义套装：按压音片段 id（null = 静音）
+var customRelease = null    // 自定义套装：松手音片段 id（null = 静音）
+var usageQuery = ''         // 用量面板搜索词
+var usageData = null        // 用量面板最近一次数据（搜索时重渲染用）
+var usageBodyEl = null      // 用量面板内容容器
 
 // ---------- 工具 ----------
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v) }
@@ -659,12 +759,17 @@ function applyConfig(d) {
   if (typeof d.data_source === 'string' && /^(auto|ledger|cli)$/.test(d.data_source)) {
     sourceSelect.value = d.data_source
   }
-  if (typeof d.weekly_quota_tokens === 'number') quotaInput.value = d.weekly_quota_tokens > 0 ? String(d.weekly_quota_tokens) : ''
-  if (typeof d.window5h_warn_tokens === 'number') warnInput.value = d.window5h_warn_tokens > 0 ? String(d.window5h_warn_tokens) : ''
+  if (typeof d.window5h_warn_percent === 'number') setWarn5hPct(d.window5h_warn_percent, true)
   if (typeof d.weekly_warn_percent === 'number') setWeeklyWarnPercent(d.weekly_warn_percent, true)
   if (typeof d.task_end_sound_on === 'boolean') setTaskEndOn(d.task_end_sound_on, true)
   if (typeof d.task_end_sound === 'string') setTaskEndSound(d.task_end_sound, true)
   if (typeof d.hide_menu_btn === 'boolean') setHideMenuBtn(d.hide_menu_btn, true)
+  if (typeof d.snap_on === 'boolean') setSnapOn(d.snap_on, true)
+  // 自定义套装槽位（在 sound_set 之后恢复，补一次 setupSound 让槽位生效）
+  if (d.custom_press === null || typeof d.custom_press === 'string') customPress = d.custom_press || null
+  if (d.custom_release === null || typeof d.custom_release === 'string') customRelease = d.custom_release || null
+  rebuildSlotSelects()
+  if (soundSet === 'custom') setupSound()
   // 位置恢复：pos 为空则默认右下角吸附
   if (d.pos && typeof d.pos.x === 'number' && typeof d.pos.y === 'number') {
     // 恢复时不重新吸附，保持记忆位置；若记忆位置本身在某 1/4 贴边区，
@@ -743,17 +848,15 @@ function setDataSource(v) {
   saveConfig({ data_source: sv })
   refresh(false)
 }
-function setWeeklyQuota(v) {
-  var n = Math.max(0, Math.round(Number(v) || 0))
-  quotaInput.value = n > 0 ? String(n) : ''
-  saveConfig({ weekly_quota_tokens: n > 0 ? n : null })
-  refresh(false)
-}
-function setWarnTokens(v) {
-  var n = Math.max(0, Math.round(Number(v) || 0))
-  warnInput.value = n > 0 ? String(n) : ''
-  saveConfig({ window5h_warn_tokens: n > 0 ? n : null })
-  refresh(false)
+// 5h 预警线：百分比口径（官方 /usage 数据），调整即存并允许重新提醒
+var win5hWarnPercent = 90
+function setWarn5hPct(v, silent) {
+  var n = clamp(Math.round(Number(v) || 0), 0, 100)
+  if (n <= 0) n = 90
+  win5hWarnPercent = n
+  warn5hPctInput.value = String(n)
+  win5hWarned = false
+  if (!silent) saveConfig({ window5h_warn_percent: n })
 }
 function setWeeklyWarnPercent(v, silent) {
   var n = clamp(Math.round(Number(v) || 0), 0, 100)
@@ -780,6 +883,11 @@ function setHideMenuBtn(v, silent) {
   if (hideMenuBtn) menuBtn.classList.remove('krw-menu-btn-visible')
   if (!silent) saveConfig({ hide_menu_btn: hideMenuBtn })
 }
+function setSnapOn(v, silent) {
+  snapOn = !!v
+  snapToggle.checked = snapOn
+  if (!silent) saveConfig({ snap_on: snapOn })
+}
 
 // ---------- 音效（assets/press.mp3 / release.mp3 为原项目小黄鸭音效，加载失败静默） ----------
 var SQUISH = 'scaleY(0.88) scaleX(1.05)'
@@ -794,6 +902,12 @@ var SOUND_SETS = {
 var soundSet = 'duck'
 function setupSound() {
   try {
+    // 自定义套装：按压/松手各选一个库片段，槽位为 null 则该事件不创建 Audio（静音）
+    if (soundSet === 'custom') {
+      setupCustomSlot('press', customPress)
+      setupCustomSlot('release', customRelease)
+      return
+    }
     var set = SOUND_SETS[soundSet] || SOUND_SETS.duck
     pressAudio = new Audio(set.press)
     releaseAudio = new Audio(set.release)
@@ -804,6 +918,30 @@ function setupSound() {
     pressAudio.addEventListener('error', function () { soundDead = true })
     releaseAudio.addEventListener('error', function () { soundDead = true })
   } catch (err) { soundDead = true }
+}
+function setupCustomSlot(which, id) {
+  if (!id || !isTauri) {
+    if (which === 'press') pressAudio = null; else releaseAudio = null
+    return
+  }
+  invoke('audio_path', { id: id }).then(function (p) {
+    var a = null
+    if (p) {
+      try {
+        a = new Audio(fileSrc(p))
+        a.preload = 'auto'
+        a.volume = soundVol
+        a.addEventListener('error', function () { soundDead = true })
+      } catch (err) { a = null }
+    }
+    if (which === 'press') pressAudio = a; else releaseAudio = a
+  }).catch(function () {
+    if (which === 'press') pressAudio = null; else releaseAudio = null
+  })
+}
+// 库内文件 → WebView 可加载的 URL（mock / 异常时原样返回）
+function fileSrc(p) {
+  try { return TAURI.core.convertFileSrc(p) } catch (err) { return p }
 }
 function playSound(a) {
   if (!a || !soundOn || soundDead) return
@@ -990,8 +1128,9 @@ setInterval(function () {
 }, 15000)
 
 function setSoundSet(v, silent) {
-  soundSet = v === 'fx1' ? 'fx1' : 'duck'
+  soundSet = /^(duck|fx1|custom)$/.test(v) ? v : 'duck'
   soundSetSelect.value = soundSet
+  customSlotRow.style.display = soundSet === 'custom' ? '' : 'none'   // 自定义套装才显示槽位行
   setupSound()
   if (!silent) saveConfig({ sound_set: soundSet })
 }
@@ -1023,6 +1162,10 @@ function window5hText() {
   var map = { ok: '正常', warn: '接近限流', unknown: '未知' }
   var cmap = { ok: C_OK, warn: C_WARN, unknown: C_UNKNOWN }
   var st = map[w.status] ? w.status : 'unknown'
+  // 优先显示官方百分比（cli 源）；ledger 降级时显示估算/阈值或仅状态
+  if (typeof w.percent === 'number' && isFinite(w.percent)) {
+    return { t: '5 小时窗口：已用 ' + w.percent.toFixed(0) + '%', c: cmap[st] }
+  }
   var t = '5 小时窗口：' + map[st]
   if (typeof w.used_tokens === 'number' && typeof w.warn_threshold === 'number') {
     t += '（' + fmtInt(w.used_tokens) + ' / ' + fmtInt(w.warn_threshold) + '）'
@@ -1096,13 +1239,19 @@ function applyBubbleLines(lines) {
   // 随机台词段：隐藏进度条与 5h 状态行，只排三行文字
   barEl.style.display = 'none'
   statusEl.style.display = 'none'
-  // gif 台词组：只显示动图；动图素材缺失时降级为文字台词
-  if (lines && lines.gif && !gifFailed) {
-    gifEl.style.display = 'block'
-    labelEl.style.display = 'none'
-    amountEl.style.display = 'none'
-    hintEl.style.display = 'none'
-    return
+  // gif 台词组：从候选池随机抽一张（同一段台词内重渲染保持同一张）；
+  // 单张失败只剔除该图，全部失败才降级为文字台词
+  if (lines && lines.gif) {
+    var cand = (lines._cand && !lines._cand.failed) ? lines._cand : pickGifCandidate()
+    if (cand) {
+      lines._cand = cand
+      if (gifEl.getAttribute('src') !== cand.url) gifEl.src = cand.url
+      gifEl.style.display = 'block'
+      labelEl.style.display = 'none'
+      amountEl.style.display = 'none'
+      hintEl.style.display = 'none'
+      return
+    }
   }
   gifEl.style.display = 'none'
   if (lines && lines.gif) {
@@ -1555,11 +1704,14 @@ function endDrag(e, clickAllowed) {
     refresh(true)
     return
   }
-  // 松手吸附：按中心点象限滑向对应边
-  var t = snapTarget(state.left, state.top, rootSize())
-  state.h = t.h
-  state.v = t.v
-  placeWidget(t.x, t.y, true)
+  // 松手：snap_on 开 → 按中心点象限滑向吸附边；关 → 留在释放点
+  // （拖动过程中 placeWidget 已逐帧钳回屏幕内，这里只需持久化）
+  if (snapOn) {
+    var t = snapTarget(state.left, state.top, rootSize())
+    state.h = t.h
+    state.v = t.v
+    placeWidget(t.x, t.y, true)
+  }
   persistPos()
 }
 document.addEventListener('pointerdown', onDocPointerDown, true)
@@ -1633,8 +1785,22 @@ function todayStr() {
   var d = t.getDate()
   return t.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (d < 10 ? '0' : '') + d
 }
+// 模型名友好标注：kimi-code/k3 → K3（括注原始 id），unknown → 未知模型
+function friendlyModel(id) {
+  var s = String(id == null ? '' : id)
+  if (!s || s.toLowerCase() === 'unknown') return '未知模型'
+  if (s === 'kimi-code/k3') return 'K3（' + s + '）'
+  return s
+}
+// 搜索命中：友好名与原始 id 都可命中（大小写不敏感）
+function modelNameHit(id, q) {
+  if (!q) return true
+  return friendlyModel(id).toLowerCase().indexOf(q) >= 0 ||
+    String(id == null ? '' : id).toLowerCase().indexOf(q) >= 0
+}
 function renderUsagePanel(bodyEl, d) {
   bodyEl.innerHTML = ''
+  var q = String(usageQuery || '').trim().toLowerCase()
   var days = d && Array.isArray(d.days) ? d.days : []
   var modelsAll = d && Array.isArray(d.models_all) ? d.models_all : []
   if (!days.length && !modelsAll.length) {
@@ -1667,34 +1833,49 @@ function renderUsagePanel(bodyEl, d) {
     }
     bodyEl.appendChild(sec7)
   }
-  // 全时段模型占比（models_all 按 tokens 降序）
+  // 全时段模型占比（models_all 按 tokens 降序；搜索时按友好名/原始 id 过滤）
   if (modelsAll.length) {
     var sum = 0
     for (i = 0; i < modelsAll.length; i++) sum += Number(modelsAll[i].tokens) || 0
     var secM = panelEl('div', 'krw-usage-sec')
     secM.appendChild(panelEl('div', 'krw-usage-h', '模型占比（全时段）'))
+    var mHit = 0
     for (i = 0; i < modelsAll.length; i++) {
+      if (!modelNameHit(modelsAll[i].model, q)) continue
+      mHit++
       var tk = Number(modelsAll[i].tokens) || 0
       var pct = sum > 0 ? Math.round(tk / sum * 1000) / 10 : 0
-      secM.appendChild(usageBarRow(String(modelsAll[i].model || '未知'), sum > 0 ? tk / sum : 0, pct + '% · ' + fmtInt(tk)))
+      secM.appendChild(usageBarRow(friendlyModel(modelsAll[i].model), sum > 0 ? tk / sum : 0, pct + '% · ' + fmtInt(tk)))
     }
+    if (!mHit) secM.appendChild(panelEl('div', 'krw-usage-sub', '无匹配模型'))
     bodyEl.appendChild(secM)
   }
-  // 逐日明细（按天倒序：日期 + 当日合计 + 模型细分）
+  // 逐日明细（按天倒序：日期 + 当日合计 + 模型细分；搜索时按日期或模型名过滤）
   if (days.length) {
     var secD = panelEl('div', 'krw-usage-sec')
     secD.appendChild(panelEl('div', 'krw-usage-h', '逐日明细'))
+    var dHit = 0
     for (i = 0; i < days.length; i++) {
       var dd = days[i]
+      var ms = Array.isArray(dd.models) ? dd.models : []
+      var dateHit = !q || String(dd.date || '').toLowerCase().indexOf(q) >= 0
+      var showMs = ms
+      if (q && !dateHit) {
+        // 日期不命中 → 仅当某模型命中时才显示该天，且只列命中的模型
+        showMs = []
+        for (var j = 0; j < ms.length; j++) if (modelNameHit(ms[j].model, q)) showMs.push(ms[j])
+        if (!showMs.length) continue
+      }
+      dHit++
       var dRow = panelEl('div', 'krw-usage-row')
       dRow.appendChild(panelEl('span', 'krw-usage-date', String(dd.date || '')))
       dRow.appendChild(panelEl('span', 'krw-usage-num', fmtInt(dd.total) + ' token'))
       secD.appendChild(dRow)
-      var ms = Array.isArray(dd.models) ? dd.models : []
       var parts = []
-      for (var j = 0; j < ms.length; j++) parts.push(String(ms[j].model || '未知') + ' ' + fmtInt(ms[j].tokens))
+      for (var j2 = 0; j2 < showMs.length; j2++) parts.push(friendlyModel(showMs[j2].model) + ' ' + fmtInt(showMs[j2].tokens))
       if (parts.length) secD.appendChild(panelEl('div', 'krw-usage-sub', parts.join(' · ')))
     }
+    if (!dHit) secD.appendChild(panelEl('div', 'krw-usage-sub', '无匹配记录'))
     bodyEl.appendChild(secD)
   }
 }
@@ -1714,6 +1895,17 @@ function openUsagePanel() {
   usagePanel = panelEl('div', 'krw-overlay')
   var head = panelEl('div', 'krw-overlay-head')
   head.appendChild(panelEl('span', 'krw-overlay-title', '用量记录'))
+  // 搜索：按日期（如 09-15）或模型名（友好名 / 原始 id）过滤
+  var searchInput = panelEl('input', 'krw-text-input')
+  searchInput.type = 'text'
+  searchInput.placeholder = '搜索日期或模型名'
+  searchInput.style.margin = '0 10px'
+  searchInput.value = usageQuery
+  searchInput.addEventListener('input', function () {
+    usageQuery = searchInput.value
+    if (usageBodyEl) renderUsagePanel(usageBodyEl, usageData)
+  })
+  head.appendChild(searchInput)
   var closeBtn = panelEl('button', 'krw-sound', '关闭')
   closeBtn.type = 'button'
   closeBtn.addEventListener('click', function (e) { e.stopPropagation(); closeUsagePanel() })
@@ -1723,14 +1915,18 @@ function openUsagePanel() {
   bodyEl.appendChild(panelEl('div', 'krw-usage-empty', '加载中…'))
   usagePanel.appendChild(bodyEl)
   document.body.appendChild(usagePanel)
+  usageBodyEl = bodyEl
   invoke('get_usage_history')
-    .then(function (d) { if (usagePanel) renderUsagePanel(bodyEl, d) })
-    .catch(function () { if (usagePanel) renderUsagePanel(bodyEl, null) })
+    .then(function (d) { usageData = d; if (usagePanel) renderUsagePanel(bodyEl, d) })
+    .catch(function () { usageData = null; if (usagePanel) renderUsagePanel(bodyEl, null) })
 }
 function closeUsagePanel() {
   if (!usagePanel) return
   try { document.body.removeChild(usagePanel) } catch (err) {}
   usagePanel = null
+  usageQuery = ''
+  usageData = null
+  usageBodyEl = null
   if (isTauri && savedWinRect) {
     tauriSetSizeWH(savedWinRect.size, savedWinRect.size)
     tauriSetPosition(savedWinRect.left, savedWinRect.top)
@@ -1738,34 +1934,281 @@ function closeUsagePanel() {
   }
 }
 
-// ---------- 自定义角色图 ----------
+// ---------- 角色图库 ----------
 function setImgHint(t) { imgHint.textContent = t || '' }
-function applyCustomImage() {
-  if (!isTauri) { setImgHint('浏览器预览模式不支持换图'); return }
+function shortErr(err) { return String(err).slice(0, 40) }
+var roleList = []
+var activeRoleId = null
+function renderRoleList() {
+  roleListEl.innerHTML = ''
+  if (!isTauri) {
+    imgPathInput.disabled = true
+    imgApplyBtn.disabled = true
+    imgResetBtn.disabled = true
+    roleListEl.appendChild(panelEl('div', 'krw-menu-hint', '浏览器预览模式不支持角色库'))
+    return
+  }
+  if (!roleList.length) {
+    roleListEl.appendChild(panelEl('div', 'krw-menu-hint', '还没有角色，添加一张图片吧'))
+    return
+  }
+  for (var i = 0; i < roleList.length; i++) {
+    (function (r) {
+      var row = panelEl('div', 'krw-list-row')
+      var name = panelEl('span', 'krw-list-name', (r.id === activeRoleId ? '★ ' : '') + r.name)
+      name.title = r.name
+      row.appendChild(name)
+      var useBtn = panelEl('button', 'krw-sound krw-mini', r.id === activeRoleId ? '使用中' : '启用')
+      useBtn.type = 'button'
+      useBtn.disabled = r.id === activeRoleId
+      useBtn.addEventListener('click', function (e) { e.stopPropagation(); selectRole(r.id) })
+      row.appendChild(useBtn)
+      var delBtn = panelEl('button', 'krw-sound krw-mini', '删除')
+      delBtn.type = 'button'
+      delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteRole(r.id) })
+      row.appendChild(delBtn)
+      roleListEl.appendChild(row)
+    })(roleList[i])
+  }
+}
+function refreshRoles() {
+  if (!isTauri) { renderRoleList(); return }
+  invoke('list_roles')
+    .then(function (d) {
+      roleList = d && Array.isArray(d.roles) ? d.roles : []
+      activeRoleId = d && d.active ? d.active : null
+      renderRoleList()
+    })
+    .catch(function () {})
+}
+function addRole() {
+  if (!isTauri) { setImgHint('浏览器预览模式不支持角色库'); return }
   var p = String(imgPathInput.value || '').trim()
   if (!p) { setImgHint('请先输入图片绝对路径'); return }
-  setImgHint('应用中…')
-  invoke('set_custom_image', { path: p })
-    .then(function (finalPath) {
-      if (finalPath) {
-        try { img.src = TAURI.core.convertFileSrc(finalPath) } catch (err) {}
-        imgPathInput.value = finalPath
-        setImgHint('已应用')
-      } else {
-        setImgHint('应用失败')
+  setImgHint('添加中…')
+  invoke('add_role', { path: p })
+    .then(function () {
+      imgPathInput.value = ''
+      setImgHint('已添加')
+      refreshRoles()
+    })
+    .catch(function (err) { setImgHint('失败：' + shortErr(err)) })
+}
+function selectRole(id) {
+  if (!isTauri) return
+  invoke('select_role', { id: id })
+    .then(function (p) {
+      if (p) {
+        img.src = fileSrc(p)
+        activeRoleId = id
+        renderRoleList()
       }
     })
-    .catch(function (err) { setImgHint('失败：' + String(err).slice(0, 40)) })
+    .catch(function (err) { setImgHint('启用失败：' + shortErr(err)) })
 }
-function resetCustomImage() {
-  if (!isTauri) { setImgHint('浏览器预览模式不支持换图'); return }
-  invoke('clear_custom_image')
+function deleteRole(id) {
+  if (!isTauri) return
+  invoke('delete_role', { id: id })
+    .then(function () {
+      // 删的是当前启用图 → 回默认图
+      if (activeRoleId === id) { activeRoleId = null; img.src = IMG_URL }
+      refreshRoles()
+    })
+    .catch(function (err) { setImgHint('删除失败：' + shortErr(err)) })
+}
+function resetRole() {
+  if (!isTauri) { setImgHint('浏览器预览模式不支持角色库'); return }
+  invoke('clear_role')
     .then(function () {
       img.src = IMG_URL
-      imgPathInput.value = ''
+      activeRoleId = null
+      refreshRoles()
       setImgHint('已恢复默认')
     })
-    .catch(function (err) { setImgHint('失败：' + String(err).slice(0, 40)) })
+    .catch(function (err) { setImgHint('失败：' + shortErr(err)) })
+}
+
+// ---------- 音效片段库 ----------
+var audioClips = []
+var previewAudio = null
+function setAudioHint(t) { audioHint.textContent = t || '' }
+function renderAudioList() {
+  audioListEl.innerHTML = ''
+  if (!isTauri) {
+    audioPathInput.disabled = true
+    audioImportBtn.disabled = true
+    audioListEl.appendChild(panelEl('div', 'krw-menu-hint', '浏览器预览模式不支持音效库'))
+    return
+  }
+  if (!audioClips.length) {
+    audioListEl.appendChild(panelEl('div', 'krw-menu-hint', '还没有音效片段，导入一个吧'))
+    return
+  }
+  for (var i = 0; i < audioClips.length; i++) {
+    (function (c) {
+      var row = panelEl('div', 'krw-list-row')
+      var name = panelEl('span', 'krw-list-name', c.name)
+      name.title = c.name
+      row.appendChild(name)
+      var playBtn = panelEl('button', 'krw-sound krw-mini', '试听')
+      playBtn.type = 'button'
+      playBtn.addEventListener('click', function (e) { e.stopPropagation(); previewClip(c.id) })
+      row.appendChild(playBtn)
+      var delBtn = panelEl('button', 'krw-sound krw-mini', '删除')
+      delBtn.type = 'button'
+      delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteAudio(c.id) })
+      row.appendChild(delBtn)
+      audioListEl.appendChild(row)
+    })(audioClips[i])
+  }
+}
+function loadAudioClips() {
+  if (!isTauri) { renderAudioList(); rebuildSlotSelects(); return }
+  invoke('list_audio')
+    .then(function (arr) {
+      audioClips = Array.isArray(arr) ? arr : []
+      renderAudioList()
+      rebuildSlotSelects()
+    })
+    .catch(function () {})
+}
+function previewClip(id) {
+  if (!isTauri) return
+  invoke('audio_path', { id: id })
+    .then(function (p) {
+      if (!p) { setAudioHint('片段文件不存在'); return }
+      try {
+        if (previewAudio) previewAudio.pause()
+        previewAudio = new Audio(fileSrc(p))
+        previewAudio.volume = soundVol   // 试听音量跟随音量滑块
+        var pr = previewAudio.play()
+        if (pr && typeof pr.catch === 'function') pr.catch(function () {})
+      } catch (err) {}
+    })
+    .catch(function () {})
+}
+function importAudio() {
+  if (!isTauri) { setAudioHint('浏览器预览模式不支持音效库'); return }
+  var p = String(audioPathInput.value || '').trim()
+  if (!p) { setAudioHint('请先输入音频绝对路径'); return }
+  setAudioHint('导入中…')
+  invoke('import_audio', { path: p })
+    .then(function () {
+      audioPathInput.value = ''
+      setAudioHint('已导入')
+      loadAudioClips()
+    })
+    .catch(function (err) { setAudioHint('失败：' + shortErr(err)) })
+}
+function deleteAudio(id) {
+  if (!isTauri) return
+  invoke('delete_audio', { id: id })
+    .then(function () {
+      // 后端会自动清空引用该片段的槽位；本地同步（静默，不再回写配置）
+      if (customPress === id) customPress = null
+      if (customRelease === id) customRelease = null
+      loadAudioClips()
+      setupSound()
+    })
+    .catch(function (err) { setAudioHint('删除失败：' + shortErr(err)) })
+}
+// 自定义套装槽位下拉：选项 = （静音）+ 片段库；槽位引用的片段已删 → 显示回（静音）
+function fillSlotSelect(sel, cur) {
+  sel.innerHTML = ''
+  sel.appendChild(menuOpt('', '（静音）'))
+  var found = !cur
+  for (var i = 0; i < audioClips.length; i++) {
+    sel.appendChild(menuOpt(audioClips[i].id, audioClips[i].name))
+    if (audioClips[i].id === cur) found = true
+  }
+  sel.value = found ? (cur || '') : ''
+}
+function rebuildSlotSelects() {
+  fillSlotSelect(pressSlotSel, customPress)
+  fillSlotSelect(releaseSlotSel, customRelease)
+}
+
+// ---------- 泡泡图库 ----------
+function setBubHint(t) { bubHint.textContent = t || '' }
+function renderBubbleImgList() {
+  bubListEl.innerHTML = ''
+  if (!isTauri) {
+    bubPathInput.disabled = true
+    bubAddBtn.disabled = true
+    bubListEl.appendChild(panelEl('div', 'krw-menu-hint', '浏览器预览模式不支持上传泡泡图（内置两张可抽）'))
+    return
+  }
+  var has = false
+  for (var i = 0; i < bubbleGifCands.length; i++) {
+    var c = bubbleGifCands[i]
+    if (!c.id) continue   // 内置候选不列出（不可删）
+    has = true
+    ;(function (cand) {
+      var row = panelEl('div', 'krw-list-row')
+      var thumb = document.createElement('img')
+      thumb.className = 'krw-thumb'
+      thumb.src = cand.url
+      thumb.alt = ''
+      thumb.draggable = false
+      row.appendChild(thumb)
+      var name = panelEl('span', 'krw-list-name', cand.name)
+      name.title = cand.name
+      row.appendChild(name)
+      var delBtn = panelEl('button', 'krw-sound krw-mini', '删除')
+      delBtn.type = 'button'
+      delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteBubbleImg(cand.id) })
+      row.appendChild(delBtn)
+      bubListEl.appendChild(row)
+    })(c)
+  }
+  if (!has) bubListEl.appendChild(panelEl('div', 'krw-menu-hint', '还没有自定义泡泡图（内置 petpet / money 两张）'))
+}
+function pushBubbleCand(id, name) {
+  invoke('bubble_img_path', { id: id })
+    .then(function (p) {
+      if (!p) return
+      bubbleGifCands.push({ url: fileSrc(p), failed: false, id: id, name: name || id })
+      renderBubbleImgList()
+    })
+    .catch(function () {})
+}
+function loadBubbleImgs() {
+  if (!isTauri) { renderBubbleImgList(); return }
+  invoke('list_bubble_imgs')
+    .then(function (arr) {
+      if (Array.isArray(arr)) {
+        for (var i = 0; i < arr.length; i++) {
+          if (arr[i] && arr[i].id) pushBubbleCand(arr[i].id, arr[i].name)
+        }
+      }
+      renderBubbleImgList()
+    })
+    .catch(function () { renderBubbleImgList() })
+}
+function addBubbleImg() {
+  if (!isTauri) { setBubHint('浏览器预览模式不支持上传'); return }
+  var p = String(bubPathInput.value || '').trim()
+  if (!p) { setBubHint('请先输入 gif 绝对路径'); return }
+  setBubHint('添加中…')
+  invoke('import_bubble_img', { path: p })
+    .then(function (it) {
+      bubPathInput.value = ''
+      setBubHint('已添加')
+      if (it && it.id) pushBubbleCand(it.id, it.name)
+      renderBubbleImgList()
+    })
+    .catch(function (err) { setBubHint('失败：' + shortErr(err)) })
+}
+function deleteBubbleImg(id) {
+  if (!isTauri) return
+  invoke('delete_bubble_img', { id: id })
+    .then(function () {
+      for (var i = bubbleGifCands.length - 1; i >= 0; i--) {
+        if (bubbleGifCands[i].id === id) bubbleGifCands.splice(i, 1)
+      }
+      renderBubbleImgList()
+    })
+    .catch(function (err) { setBubHint('删除失败：' + shortErr(err)) })
 }
 
 // ---------- 启动 ----------
@@ -1774,16 +2217,32 @@ setupTaskEndSound()
 if (isTauri) tauriSetSize(rootSize())
 express()
 render()
-// 启动时恢复自定义角色图（mock 模式跳过，保持默认图）
+// 库列表：mock 下先渲染禁用提示；Tauri 下由各自 load/refresh 填充
+renderRoleList()
+renderAudioList()
+renderBubbleImgList()
+rebuildSlotSelects()
 if (isTauri) {
-  invoke('get_custom_image')
-    .then(function (p) {
-      if (p) {
-        try { img.src = TAURI.core.convertFileSrc(p) } catch (err) {}
-        imgPathInput.value = p
+  // 启动换图：优先角色库 active（select_role 幂等）；无 active 则兼容旧的
+  // get_custom_image，非空也换——两条路二选一，不重复换
+  invoke('list_roles')
+    .then(function (d) {
+      roleList = d && Array.isArray(d.roles) ? d.roles : []
+      activeRoleId = d && d.active ? d.active : null
+      renderRoleList()
+      if (activeRoleId) {
+        invoke('select_role', { id: activeRoleId })
+          .then(function (p) { if (p) img.src = fileSrc(p) })
+          .catch(function () {})
+      } else {
+        invoke('get_custom_image')
+          .then(function (p) { if (p) img.src = fileSrc(p) })
+          .catch(function () {})
       }
     })
     .catch(function () {})
+  loadAudioClips()
+  loadBubbleImgs()
 }
 // 先读配置恢复（含位置），再开始刷新
 invoke('get_config')

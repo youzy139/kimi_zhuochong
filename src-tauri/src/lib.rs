@@ -112,6 +112,162 @@ fn clear_custom_image() {
     let _ = std::fs::remove_file(config::custom_image_path());
 }
 
+// ---------- 资源库（角色图 / 音效片段 / 泡泡图，索引存 config.json，文件存库目录） ----------
+
+/// 导入文件到库目录，返回 (id, name, file)
+fn import_asset(src_path: &str, dir: &std::path::PathBuf, max_bytes: u64) -> Result<config::AssetEntry, String> {
+    let src = std::path::PathBuf::from(src_path);
+    let meta = std::fs::metadata(&src).map_err(|_| "文件不存在或不可读".to_string())?;
+    if meta.len() > max_bytes {
+        return Err(format!("文件超过 {}MB", max_bytes / 1024 / 1024));
+    }
+    let id = sources::now_millis().to_string();
+    let ext = src
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let name = src
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| id.clone());
+    let file = if ext.is_empty() { id.clone() } else { format!("{id}.{ext}") };
+    let _ = std::fs::create_dir_all(dir);
+    std::fs::copy(&src, dir.join(&file)).map_err(|e| format!("复制失败：{e}"))?;
+    Ok(config::AssetEntry { id, name, file })
+}
+
+fn delete_asset_file(dir: &std::path::PathBuf, file: &str) {
+    let _ = std::fs::remove_file(dir.join(file));
+}
+
+#[tauri::command]
+fn list_roles(state: tauri::State<'_, Mutex<AppState>>) -> serde_json::Value {
+    match state.lock() {
+        Ok(g) => serde_json::json!({ "roles": g.cfg.roles, "active": g.cfg.active_role }),
+        Err(_) => serde_json::json!({ "roles": [], "active": null }),
+    }
+}
+
+#[tauri::command]
+fn add_role(state: tauri::State<'_, Mutex<AppState>>, path: String) -> Result<config::AssetEntry, String> {
+    let entry = import_asset(&path, &config::roles_dir(), 20 * 1024 * 1024)?;
+    let mut g = state.lock().map_err(|_| "状态锁失败")?;
+    g.cfg.roles.push(entry.clone());
+    config::save(&g.cfg);
+    Ok(entry)
+}
+
+#[tauri::command]
+fn select_role(state: tauri::State<'_, Mutex<AppState>>, id: String) -> Result<String, String> {
+    let mut g = state.lock().map_err(|_| "状态锁失败")?;
+    let entry = g.cfg.roles.iter().find(|r| r.id == id).cloned()
+        .ok_or_else(|| "角色图不存在".to_string())?;
+    g.cfg.active_role = Some(id);
+    config::save(&g.cfg);
+    Ok(config::roles_dir().join(&entry.file).to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn clear_role(state: tauri::State<'_, Mutex<AppState>>) {
+    if let Ok(mut g) = state.lock() {
+        g.cfg.active_role = None;
+        config::save(&g.cfg);
+    }
+}
+
+#[tauri::command]
+fn delete_role(state: tauri::State<'_, Mutex<AppState>>, id: String) {
+    if let Ok(mut g) = state.lock() {
+        if let Some(pos) = g.cfg.roles.iter().position(|r| r.id == id) {
+            let entry = g.cfg.roles.remove(pos);
+            delete_asset_file(&config::roles_dir(), &entry.file);
+        }
+        if g.cfg.active_role.as_deref() == Some(id.as_str()) {
+            g.cfg.active_role = None;
+        }
+        config::save(&g.cfg);
+    }
+}
+
+#[tauri::command]
+fn list_audio(state: tauri::State<'_, Mutex<AppState>>) -> Vec<config::AssetEntry> {
+    match state.lock() {
+        Ok(g) => g.cfg.audio_fragments.clone(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+fn import_audio(state: tauri::State<'_, Mutex<AppState>>, path: String) -> Result<config::AssetEntry, String> {
+    let entry = import_asset(&path, &config::audio_dir(), 10 * 1024 * 1024)?;
+    let mut g = state.lock().map_err(|_| "状态锁失败")?;
+    g.cfg.audio_fragments.push(entry.clone());
+    config::save(&g.cfg);
+    Ok(entry)
+}
+
+#[tauri::command]
+fn delete_audio(state: tauri::State<'_, Mutex<AppState>>, id: String) {
+    if let Ok(mut g) = state.lock() {
+        if let Some(pos) = g.cfg.audio_fragments.iter().position(|a| a.id == id) {
+            let entry = g.cfg.audio_fragments.remove(pos);
+            delete_asset_file(&config::audio_dir(), &entry.file);
+        }
+        // 被引用的槽位一并清空
+        if g.cfg.custom_press.as_deref() == Some(id.as_str()) {
+            g.cfg.custom_press = None;
+        }
+        if g.cfg.custom_release.as_deref() == Some(id.as_str()) {
+            g.cfg.custom_release = None;
+        }
+        config::save(&g.cfg);
+    }
+}
+
+/// 音效片段完整路径（前端 convertFileSrc 播放用）
+#[tauri::command]
+fn audio_path(state: tauri::State<'_, Mutex<AppState>>, id: String) -> Option<String> {
+    let g = state.lock().ok()?;
+    let entry = g.cfg.audio_fragments.iter().find(|a| a.id == id)?;
+    Some(config::audio_dir().join(&entry.file).to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn list_bubble_imgs(state: tauri::State<'_, Mutex<AppState>>) -> Vec<config::AssetEntry> {
+    match state.lock() {
+        Ok(g) => g.cfg.bubble_images.clone(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tauri::command]
+fn import_bubble_img(state: tauri::State<'_, Mutex<AppState>>, path: String) -> Result<config::AssetEntry, String> {
+    let entry = import_asset(&path, &config::bubble_imgs_dir(), 20 * 1024 * 1024)?;
+    let mut g = state.lock().map_err(|_| "状态锁失败")?;
+    g.cfg.bubble_images.push(entry.clone());
+    config::save(&g.cfg);
+    Ok(entry)
+}
+
+#[tauri::command]
+fn delete_bubble_img(state: tauri::State<'_, Mutex<AppState>>, id: String) {
+    if let Ok(mut g) = state.lock() {
+        if let Some(pos) = g.cfg.bubble_images.iter().position(|a| a.id == id) {
+            let entry = g.cfg.bubble_images.remove(pos);
+            delete_asset_file(&config::bubble_imgs_dir(), &entry.file);
+        }
+        config::save(&g.cfg);
+    }
+}
+
+/// 泡泡图完整路径
+#[tauri::command]
+fn bubble_img_path(state: tauri::State<'_, Mutex<AppState>>, id: String) -> Option<String> {
+    let g = state.lock().ok()?;
+    let entry = g.cfg.bubble_images.iter().find(|a| a.id == id)?;
+    Some(config::bubble_imgs_dir().join(&entry.file).to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -124,7 +280,20 @@ pub fn run() {
             get_usage_history,
             get_custom_image,
             set_custom_image,
-            clear_custom_image
+            clear_custom_image,
+            list_roles,
+            add_role,
+            select_role,
+            clear_role,
+            delete_role,
+            list_audio,
+            import_audio,
+            delete_audio,
+            audio_path,
+            list_bubble_imgs,
+            import_bubble_img,
+            delete_bubble_img,
+            bubble_img_path
         ])
         .setup(|app| {
             // 系统托盘：无边框+跳过任务栏的窗口没有别的关闭入口，托盘是唯一的退出通道

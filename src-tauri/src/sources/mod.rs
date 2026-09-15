@@ -23,6 +23,8 @@ pub struct WeekInfo {
 pub struct Window5h {
     pub used_tokens: u64,
     pub warn_threshold: Option<u64>,
+    /// 官方已用百分比（cli 源解析自 /usage；ledger 源无官方数据为 null）
+    pub percent: Option<f64>,
     /// "ok" | "warn" | "unknown"
     pub status: String,
 }
@@ -111,6 +113,9 @@ impl UsageSnapshot {
         }
         if self.window5h.used_tokens == 0 {
             self.window5h.used_tokens = fallback.window5h.used_tokens;
+        }
+        if self.window5h.percent.is_none() {
+            self.window5h.percent = fallback.window5h.percent;
         }
         if self.last_turn.is_none() {
             self.last_turn = fallback.last_turn.clone();

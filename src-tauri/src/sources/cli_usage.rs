@@ -58,8 +58,9 @@ impl UsageSource for CliUsageSource {
         }
         let mut window5h = Window5h::default();
         if let Some(p) = parsed.window_percent {
-            // 窗口没有 token 绝对值，用百分比粗估状态
-            window5h.status = if p >= 80.0 { "warn" } else { "ok" }.to_string();
+            // 官方百分比透出；状态按用户预警线（默认 90%）判定
+            window5h.percent = Some(p);
+            window5h.status = if p >= cfg.window5h_warn_percent { "warn" } else { "ok" }.to_string();
             if let Some(th) = cfg.window5h_warn_tokens {
                 window5h.warn_threshold = Some(th);
                 window5h.used_tokens = (p / 100.0 * th as f64).round() as u64;
