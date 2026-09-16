@@ -1529,6 +1529,12 @@ function hideCostBubble() {
 // ---------- 数字滚动 ----------
 function animateAmount(from, to, suffix, duration) {
   if (costBubbleActive) return
+  // 气泡关闭期间只记账不写 DOM（避免淡出动画里闪现状态数字）
+  if (!bubbleShown) {
+    shown = to
+    amountEl.textContent = to.toFixed(1) + suffix
+    return
+  }
   if (animId) cancelAnimationFrame(animId)
   if (from === null || !isFinite(from)) from = to
   if (from === to) {
@@ -1557,6 +1563,10 @@ function animateAmount(from, to, suffix, duration) {
 // ---------- 渲染 ----------
 function render() {
   if (costBubbleActive) return
+  // 气泡关闭期间不写入：hideBubble 后 refresh 紧随的 render 会把状态内容写进
+  // 正在淡出的气泡（用户看到「先闪几帧状态泡再关闭」）。气泡每次打开都会
+  // 经 restoreBubbleLines 重新 render，关闭期的写入本来就无人观看
+  if (!bubbleShown) return
   // 随机台词段显示期间：只重排台词，不写入任何状态内容——否则「本周额度」
   // 状态行会先写进元素再被台词覆盖，竞态下两类内容重复同屏
   if (bubbleRandomActive && bubbleRandomLines) {
