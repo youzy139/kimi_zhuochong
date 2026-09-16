@@ -688,6 +688,12 @@ function fmtInt(n) {
   if (!isFinite(v)) return '--'
   return Math.round(v).toLocaleString('en-US')
 }
+// token 计数文案：1 用单数，其余复数（500,000 tokens）
+function fmtTokens(n) {
+  var v = Number(n)
+  if (!isFinite(v)) return '-- tokens'
+  return fmtInt(v) + (Math.round(v) === 1 ? ' token' : ' tokens')
+}
 // 屏幕可用区域（吸附判定用）；mock 模式退化为浏览器视口
 function screenRect() {
   if (!isTauri) {
@@ -1086,8 +1092,8 @@ function pressUp() {
 // ---------- 月兔娘表情状态机 ----------
 // 基础 = 静态图；点击随机触发眨眼（wink 淡入淡出×2）或开心笑视频（约 3s 淡入淡出）；
 // 长时间无操作随机进入读书/小憩待机循环，任何互动唤醒。所有切换都走淡入淡出，不生硬
-var IDLE_MS = 180000          // 首次/互动后：3 分钟无操作进入待机动作
-var IDLE_NEXT_MS = 75000      // 插播结束后：75 秒无操作再播下一段
+var IDLE_MS = 60000           // 首次/互动后：1 分钟无操作进入待机动作
+var IDLE_NEXT_MS = 30000      // 插播结束后：30 秒无操作再播下一段
 var rabbitState = 'static'    // static | wink | happy | idle
 var reactTimer = null
 var lastActive = Date.now()
@@ -1511,7 +1517,7 @@ function showCostBubble(tokens) {
   labelEl.style.color = ''
   amountEl.style.display = ''
   amountEl.className = 'krw-amount'
-  amountEl.textContent = fmtInt(tokens) + ' token'
+  amountEl.textContent = fmtTokens(tokens)
   amountEl.style.color = C_GOLD
   hintEl.style.display = 'none'
   hintEl.textContent = ''
@@ -1679,10 +1685,10 @@ function updateFuelRow(fp) {
   var text
   if (typeof fp === 'number') {
     // 数值较小按人民币余额、较大按 token 数展示（后端格式未定前的防御性格式化）
-    text = fp < 10000 ? '¥ ' + fp.toFixed(2) : fmtInt(fp) + ' token'
+    text = fp < 10000 ? '¥ ' + fp.toFixed(2) : fmtTokens(fp)
   } else if (typeof fp === 'object') {
     if (typeof fp.balance === 'number') text = '¥ ' + fp.balance.toFixed(2)
-    else if (typeof fp.tokens === 'number') text = fmtInt(fp.tokens) + ' token'
+    else if (typeof fp.tokens === 'number') text = fmtTokens(fp.tokens)
     else text = '已开启'
   } else {
     text = String(fp)
@@ -1921,7 +1927,7 @@ function renderUsagePanel(bodyEl, d) {
   secToday.appendChild(panelEl('div', 'krw-usage-h', '今日合计'))
   var todayRow = panelEl('div', 'krw-usage-row')
   todayRow.appendChild(panelEl('span', 'krw-usage-date', ts.slice(5)))
-  todayRow.appendChild(panelEl('span', 'krw-usage-num', fmtInt(todayTotal) + ' token'))
+  todayRow.appendChild(panelEl('span', 'krw-usage-num', fmtTokens(todayTotal)))
   secToday.appendChild(todayRow)
   bodyEl.appendChild(secToday)
   // 近 7 天逐日 token（迷你柱状条，days 按日期倒序）
@@ -1972,7 +1978,7 @@ function renderUsagePanel(bodyEl, d) {
       dHit++
       var dRow = panelEl('div', 'krw-usage-row')
       dRow.appendChild(panelEl('span', 'krw-usage-date', String(dd.date || '')))
-      dRow.appendChild(panelEl('span', 'krw-usage-num', fmtInt(dd.total) + ' token'))
+      dRow.appendChild(panelEl('span', 'krw-usage-num', fmtTokens(dd.total)))
       secD.appendChild(dRow)
       var parts = []
       for (var j2 = 0; j2 < showMs.length; j2++) parts.push(friendlyModel(showMs[j2].model) + ' ' + fmtInt(showMs[j2].tokens))

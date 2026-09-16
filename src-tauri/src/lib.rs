@@ -427,6 +427,17 @@ pub fn run() {
                 }
             })
             .build(app)?;
+            // Windows 下 transparent + alwaysOnTop 的窗口会在某些系统事件后丢失
+            // TOPMOST 标志（表现为挂件悄悄沉到其它窗口下面），每 3 秒重新断言一次
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    std::thread::spawn(move || loop {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        let _ = win.set_always_on_top(true);
+                    });
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
