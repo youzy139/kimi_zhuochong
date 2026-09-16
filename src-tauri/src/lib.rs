@@ -136,6 +136,38 @@ fn import_asset(src_path: &str, dir: &std::path::PathBuf, max_bytes: u64) -> Res
     Ok(config::AssetEntry { id, name, file })
 }
 
+#[cfg(test)]
+mod tests {
+    /// 导入链路核心：文件复制进库目录 + 索引条目字段正确
+    #[test]
+    fn import_asset_copies_file_and_builds_entry() {
+        let base = std::env::temp_dir().join(format!(
+            "kimi-rabbit-import-test-{}-{}",
+            std::process::id(),
+            crate::sources::now_millis()
+        ));
+        let src_dir = base.join("src");
+        let lib_dir = base.join("lib");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_file = src_dir.join("测试图.png");
+        std::fs::write(&src_file, b"fake-png-bytes").unwrap();
+
+        let entry = super::import_asset(src_file.to_str().unwrap(), &lib_dir, 1024).unwrap();
+        assert_eq!(entry.name, "测试图");
+        assert!(entry.file.ends_with(".png"));
+        // 文件真的被复制进库目录（用户反馈「导入是虚假的」的回归保障）
+        let copied = std::fs::read(lib_dir.join(&entry.file)).unwrap();
+        assert_eq!(copied, b"fake-png-bytes");
+
+        // 不存在的源文件必须报错而不是静默成功
+        assert!(super::import_asset("C:/no/such/file.png", &lib_dir, 1024).is_err());
+        // 超限必须报错
+        assert!(super::import_asset(src_file.to_str().unwrap(), &lib_dir, 2).is_err());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
 fn delete_asset_file(dir: &std::path::PathBuf, file: &str) {
     let _ = std::fs::remove_file(dir.join(file));
 }

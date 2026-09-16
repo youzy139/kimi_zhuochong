@@ -182,9 +182,9 @@ var css = [
   '.krw-select{flex:1;border:1px solid rgba(154,143,208,.4);border-radius:6px;background:rgba(154,143,208,.12);color:' + C_TEXT + ';font-size:12px;padding:3px 0;cursor:pointer}',
   // 下拉展开列表不受 color-scheme:dark 控制，需显式指定深色底浅色字，否则选中项白底白字看不见
   '.krw-select option{background:#474a5c;color:' + C_TEXT + '}',
-  // 选中项：蓝紫底白字；未选项灰底；悬停稍亮的灰
+  // 选中项：蓝紫底白字；悬停项：明显加深（用户可感知的 hover 反馈）
   '.krw-select option:checked{background:#4a3f8f;color:#fff}',
-  '.krw-select option:hover{background:#565a70}',
+  '.krw-select option:hover{background:#262839}',
   '.krw-check{width:16px;height:16px;accent-color:#9a8fd0;cursor:pointer;flex:0 0 auto}',
   '.krw-menu-sep{height:1px;background:rgba(154,143,208,.25);margin:6px 0}',
   '.krw-volpct{width:40px;text-align:right;color:' + C_SUB + ';font-size:12px}',
@@ -945,6 +945,13 @@ function setupSound() {
       setupCustomSlot('release', customRelease)
       return
     }
+    // 单片段套装（frag:<id>）：按压/松手都用同一个库片段
+    if (typeof soundSet === 'string' && soundSet.indexOf('frag:') === 0) {
+      var fid = soundSet.slice(5)
+      setupCustomSlot('press', fid)
+      setupCustomSlot('release', fid)
+      return
+    }
     var set = SOUND_SETS[soundSet] || SOUND_SETS.duck
     pressAudio = new Audio(set.press)
     releaseAudio = new Audio(set.release)
@@ -1180,11 +1187,31 @@ setInterval(function () {
 }, 15000)
 
 function setSoundSet(v, silent) {
-  soundSet = /^(duck|fx1|custom)$/.test(v) ? v : 'duck'
-  soundSetSelect.value = soundSet
-  customSlotRow.style.display = soundSet === 'custom' ? '' : 'none'   // 自定义套装才显示槽位行
+  soundSet = /^(duck|fx1|custom)$/.test(v) ? v
+    : (typeof v === 'string' && v.indexOf('frag:') === 0 ? v : 'duck')
+  // 回显：选项存在才设置（片段库未加载完时不覆盖，由 rebuildSoundSetSelect 兜底）
+  for (var i = 0; i < soundSetSelect.options.length; i++) {
+    if (soundSetSelect.options[i].value === soundSet) { soundSetSelect.value = soundSet; break }
+  }
+  customSlotRow.style.display = soundSet === 'custom' ? '' : 'none'   // 自定义组合才显示槽位行
   setupSound()
   if (!silent) saveConfig({ sound_set: soundSet })
+}
+// 音效下拉 = 内置两套 + 自定义组合 + 片段库每个片段（直接可选）
+function rebuildSoundSetSelect() {
+  var cur = soundSet
+  soundSetSelect.innerHTML = ''
+  soundSetSelect.appendChild(menuOpt('duck', '小黄鸭'))
+  soundSetSelect.appendChild(menuOpt('fx1', '叮叮咚咚'))
+  soundSetSelect.appendChild(menuOpt('custom', '自定义组合'))
+  for (var i = 0; i < audioClips.length; i++) {
+    soundSetSelect.appendChild(menuOpt('frag:' + audioClips[i].id, audioClips[i].name))
+  }
+  var found = false
+  for (var j = 0; j < soundSetSelect.options.length; j++) {
+    if (soundSetSelect.options[j].value === cur) { found = true; break }
+  }
+  soundSetSelect.value = found ? cur : 'duck'
 }
 
 // ---------- 台词（月兔娘人设：住月球暗面、安静、爱读书、熬夜陪写代码） ----------
@@ -1757,8 +1784,10 @@ function endDrag(e, clickAllowed) {
 }
 document.addEventListener('pointerdown', onDocPointerDown, true)
 document.addEventListener('click', function (e) {
-  // 拦截角色区域内的 click，避免穿透触发下方元素（覆盖层面板除外）
-  if (e.target && e.target.closest && e.target.closest('.krw-overlay')) return
+  // 拦截角色区域内的 click，避免穿透触发下方元素（菜单/按钮/气泡/面板除外——
+  // 菜单向下展开时下排按钮与角色圆形区域几何重叠，不排除会被这里误吃，
+  // 表现为「添加/导入按钮点了没反应」）
+  if (e.target && e.target.closest && e.target.closest('.krw-overlay, .krw-menu, .krw-menu-btn, .krw-bubble')) return
   if (!isRabbitHit(e)) return
   try { e.preventDefault(); e.stopPropagation() } catch (err) {}
 }, true)
@@ -2104,12 +2133,13 @@ function renderAudioList() {
   }
 }
 function loadAudioClips() {
-  if (!isTauri) { renderAudioList(); rebuildSlotSelects(); return }
+  if (!isTauri) { renderAudioList(); rebuildSlotSelects(); rebuildSoundSetSelect(); return }
   invoke('list_audio')
     .then(function (arr) {
       audioClips = Array.isArray(arr) ? arr : []
       renderAudioList()
       rebuildSlotSelects()
+      rebuildSoundSetSelect()
     })
     .catch(function () {})
 }
@@ -2148,6 +2178,8 @@ function deleteAudio(id) {
       // 后端会自动清空引用该片段的槽位；本地同步（静默，不再回写配置）
       if (customPress === id) customPress = null
       if (customRelease === id) customRelease = null
+      // 当前套装就是被删片段 → 回退小黄鸭
+      if (soundSet === 'frag:' + id) setSoundSet('duck')
       loadAudioClips()
       setupSound()
     })
