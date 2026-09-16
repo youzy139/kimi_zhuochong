@@ -4,32 +4,40 @@
 
 ## 项目现状（重要）
 
-**本项目已完成首版实现（2026-09-02），技术选型已经用户确认：Tauri v2
+**本项目已完整交付并持续迭代（截至 2026-09-16）：Tauri v2
 （Rust + 系统 WebView2）+ 原生 JS 前端，数据路线为「记账模式为主线 +
 CLI /usage 解析增强，自动降级」。** 不要再重新发起选型讨论。
 
 仓库结构：
 
-- `需求规格书.md` —— 原始需求规格书（原 readme.md，因 Windows 文件名大小写不敏感与交付 README 冲突而改名）（新需求以它为准）
-- `README.md` —— 交付用中文说明文档
-- `src/` —— 挂件前端（`index.html` + `widget.js`，原生 JS 无构建步骤，
-  由 Tauri 直接静态托管；`src/assets/rabbit.png` 为月兔娘素材）
-- `src-tauri/` —— Rust 后端：`src/sources/` 是数据源可插拔适配层
+- `需求规格书.md` —— 原始需求规格书（新需求以它为准）
+- `README.md` —— 交付用中文说明文档（含布置教程）
+- `src/` —— 挂件前端（`index.html` + `widget.js`，原生 JS 无构建步骤；
+  `src/assets/` 内置素材：rabbit.png/wink.png 常态与 wink、happy/reading/nap.mp4
+  三个槽位视频、Ya1/Ya2/D1/D2.mp3 两套音效、task-end-*.wav 结束音、petpet/money1.gif）
+- `src-tauri/` —— Rust 后端：`src/sources/` 数据源可插拔适配层
   （`ledger.rs` 记账主线 / `cli_usage.rs` pty 抓 /usage / `mod.rs`
-  降级编排），`src/config.rs` 配置读写，`src/bin/probe_usage.rs`
-  是 /usage 格式探针
-- `Kimi月兔娘Q版.png` —— 原始素材（注意：实为 1024×1024 无透明通道
-  整幅插画，前端按圆形「月亮徽章」裁切展示）
+  降级编排与快照结构），`src/config.rs` 配置与资源库索引，
+  `src/lib.rs` 全部 Tauri 命令（含角色/音频/泡泡图/视频四个资源库），
+  `src/bin/probe_usage.rs` 是 /usage 格式探针
+- `picture/` —— 形象素材源文件存档（用户留念，含各版改款）
 - `docs/screenshot.png` —— README 效果图
+- `scripts/bulk_import_assets.py` —— 批量导入本地素材到资源库的工具（需先关挂件）
 
 关键事实（调研实测结论，勿重新假设）：
 
-- Kimi Code 没有公开额度 API；`kimi web` 本地 REST（56 个端点）无额度
-  接口；`/usage` 是 TUI 专属命令
+- Kimi Code 没有公开额度 API；`kimi web` 本地 REST 无额度接口；`/usage` 是 TUI 专属命令
 - 记账数据源：`~/.kimi-code/sessions/*/session_*/agents/*/wire.jsonl`
-  中的 `{"type":"usage.record",...,"time":<epoch ms>}` 行
-- /usage 面板格式见 `cli_usage.rs` 解析器注释（周额度/5h 窗口百分比 +
-  `resets in` 倒计时）
+  中的 `{"type":"usage.record","usageScope":"turn",...}` 行；
+  **session 粒度是累计快照，必须过滤，否则聚合虚高、上轮消耗变累计值**
+- /usage 面板格式见 `cli_usage.rs` 解析器注释（周额度/5h 窗口百分比 + `resets in`）
+- **Tauri v2 的 assetProtocol 默认关闭且需 `protocol-asset` cargo feature**；
+  库内文件（角色/音频/视频/gif）一律 `convertFileSrc` 加载，协议不开全部 404
+- WebView2 中 `<video>` 会被提升为独立合成层，border-radius 与祖先
+  overflow:hidden 都失效，圆裁必须用 `clip-path: circle(50%)`
+- 前端是单文件 IIFE（约 2500 行），改气泡逻辑注意：气泡关闭期间 render/数字滚动
+  不应写气泡 DOM（淡出期会闪现）；随机台词段显示期间 render 只重排台词
+- 用户个人素材（`音频素材/`、`角色扩充/`）有版权风险，gitignore 且永不提交
 
 ## 项目概述
 
