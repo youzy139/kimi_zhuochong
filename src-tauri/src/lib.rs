@@ -308,6 +308,7 @@ fn list_videos(state: tauri::State<'_, Mutex<AppState>>) -> serde_json::Value {
         Ok(g) => serde_json::json!({
             "videos": g.cfg.videos,
             "slots": {
+                "base": g.cfg.video_base,
                 "happy": g.cfg.video_happy,
                 "reading": g.cfg.video_reading,
                 "nap": g.cfg.video_nap,
@@ -336,6 +337,7 @@ fn set_video_slot(state: tauri::State<'_, Mutex<AppState>>, slot: String, id: Op
         }
     }
     match slot.as_str() {
+        "base" => g.cfg.video_base = id,
         "happy" => g.cfg.video_happy = id,
         "reading" => g.cfg.video_reading = id,
         "nap" => g.cfg.video_nap = id,
@@ -353,6 +355,9 @@ fn delete_video(state: tauri::State<'_, Mutex<AppState>>, id: String) {
             delete_asset_file(&config::videos_dir(), &entry.file);
         }
         // 引用该视频的槽位一并回退默认
+        if g.cfg.video_base.as_deref() == Some(id.as_str()) {
+            g.cfg.video_base = None;
+        }
         if g.cfg.video_happy.as_deref() == Some(id.as_str()) {
             g.cfg.video_happy = None;
         }

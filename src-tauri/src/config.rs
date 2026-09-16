@@ -58,7 +58,8 @@ pub struct Config {
     pub bubble_images: Vec<AssetEntry>,
     /// 视频库（用户上传部分）
     pub videos: Vec<AssetEntry>,
-    /// 视频槽位：开心笑 / 读书 / 小憩（值为视频库条目 id，None=用内置默认视频）
+    /// 视频槽位：常态循环 / 开心笑 / 读书 / 小憩（值为视频库条目 id，None=内置默认）
+    pub video_base: Option<String>,
     pub video_happy: Option<String>,
     pub video_reading: Option<String>,
     pub video_nap: Option<String>,
@@ -94,6 +95,7 @@ impl Default for Config {
             audio_fragments: Vec::new(),
             bubble_images: Vec::new(),
             videos: Vec::new(),
+            video_base: None,
             video_happy: None,
             video_reading: None,
             video_nap: None,

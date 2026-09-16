@@ -321,8 +321,8 @@ menuBtn.addEventListener('click', function (e) { e.stopPropagation(); toggleMenu
 var charbox = document.createElement('div')
 charbox.className = 'krw-charbox'
 charbox.appendChild(img)
+charbox.appendChild(videoEl)   // 视频层在 wink 之下：常态循环播放时 wink 仍能盖在上面
 charbox.appendChild(winkImg)
-charbox.appendChild(videoEl)
 body.appendChild(charbox)
 body.appendChild(bubbleBox)
 root.appendChild(body)
@@ -532,7 +532,7 @@ bubListEl.className = 'krw-list'
 var bubHint = document.createElement('span')
 bubHint.className = 'krw-menu-hint'
 // 视频库：三个槽位下拉（默认 + 库条目）+ 导入 + 列表（试看 / 删除）
-var VIDEO_SLOT_KEYS = ['happy', 'reading', 'nap']
+var VIDEO_SLOT_KEYS = ['base', 'happy', 'reading', 'nap']
 var VIDEO_SLOT_LABELS = { happy: '开心笑', reading: '读书', nap: '小憩' }
 var videoSlotSels = {}
 for (var vsi = 0; vsi < VIDEO_SLOT_KEYS.length; vsi++) {
@@ -586,6 +586,7 @@ var rA1 = menuRow(); rA1.appendChild(menuLabel('音效片段')); rA1.appendChild
 var rA2 = menuRow(); rA2.appendChild(audioHint)
 var rB1 = menuRow(); rB1.appendChild(menuLabel('泡泡图')); rB1.appendChild(bubPathInput); rB1.appendChild(bubAddBtn)
 var rB2 = menuRow(); rB2.appendChild(bubHint)
+var rV0 = menuRow(); rV0.appendChild(menuLabel('常态循环')); rV0.appendChild(videoSlotSels.base)
 var rV1 = menuRow(); rV1.appendChild(menuLabel('开心笑')); rV1.appendChild(videoSlotSels.happy)
 var rV2 = menuRow(); rV2.appendChild(menuLabel('读书')); rV2.appendChild(videoSlotSels.reading)
 var rV3 = menuRow(); rV3.appendChild(menuLabel('小憩')); rV3.appendChild(videoSlotSels.nap)
@@ -615,15 +616,15 @@ menuBox.appendChild(r5)
 menuBox.appendChild(r8)
 menuBox.appendChild(r13)
 menuBox.appendChild(r9)
-menuBox.appendChild(r10)
-menuBox.appendChild(roleListEl)
-menuBox.appendChild(r11)
+// 角色图库菜单区已下线（决策：默认形象与 wink/视频是配套设计，换单图反而违和；
+// 后端命令与已导入数据保留，随时可加回）
 menuBox.appendChild(rA1)
 menuBox.appendChild(audioListEl)
 menuBox.appendChild(rA2)
 menuBox.appendChild(rB1)
 menuBox.appendChild(bubListEl)
 menuBox.appendChild(rB2)
+menuBox.appendChild(rV0)
 menuBox.appendChild(rV1)
 menuBox.appendChild(rV2)
 menuBox.appendChild(rV3)
@@ -1118,12 +1119,32 @@ function toStatic(fade) {
   if (reactTimer) { clearTimeout(reactTimer); reactTimer = null }
   rabbitState = 'static'
   hideLayer(winkImg)
-  stopVideo(fade)
+  // 有常态循环视频 → 回到常态循环；没有 → 视频层收起，回到静态图
+  if (VIDEO_URLS.base && !videoDead) applyBaseVideo()
+  else stopVideo(fade)
+}
+// 常态循环：静态态下常驻播放（loop），任何互动/插播覆盖后由 toStatic 恢复
+function applyBaseVideo() {
+  if (rabbitState !== 'static') return
+  if (videoDead || !VIDEO_URLS.base) {
+    try { videoEl.pause() } catch (err) {}
+    videoEl.style.opacity = '0'
+    videoEl.style.display = 'none'
+    return
+  }
+  try {
+    if (videoEl.getAttribute('src') !== VIDEO_URLS.base) videoEl.src = VIDEO_URLS.base
+    videoEl.loop = true
+    showLayer(videoEl)
+    var p = videoEl.play()
+    if (p && typeof p.catch === 'function') p.catch(function () {})
+  } catch (err) {}
 }
 function playVideoFor(url, ms) {
   if (videoDead) return false
   try {
     if (videoEl.getAttribute('src') !== url) videoEl.src = url
+    videoEl.loop = false          // 插播式设计：每段视频只播一遍，靠 ended 事件收场
     videoEl.currentTime = 0
     showLayer(videoEl)
     var p = videoEl.play()
@@ -1596,7 +1617,9 @@ function refresh(manual) {
         // 每轮消耗：seq 递增且开关开 → 弹消耗泡泡（首次只对齐不弹）
         if (data.last_turn && typeof data.last_turn.seq === 'number') {
           if (lastTurnSeq >= 0 && data.last_turn.seq > lastTurnSeq && typeof data.last_turn.tokens === 'number') {
-            showCostBubble(data.last_turn.tokens)
+            // 有气泡打开时不顶替：否则用户刚点开的状态泡会被秒换成消耗泡，
+            // 看起来像「额度显示一闪就关」（用户刚点完代码正好跑完一轮时必现）
+            if (!bubbleShown) showCostBubble(data.last_turn.tokens)
           }
           lastTurnSeq = data.last_turn.seq
         }
@@ -2286,16 +2309,18 @@ function deleteBubbleImg(id) {
 
 // ---------- 视频库 + 槽位自定义 ----------
 var videoList = []                                      // 库条目 [{id,name,file}]
-var videoSlots = { happy: null, reading: null, nap: null }   // 槽位绑定的库视频 id（null = 默认）
-var DEFAULT_VIDEO_URLS = {                              // 内置默认素材（解析时的回退值）
+var videoSlots = { base: null, happy: null, reading: null, nap: null }   // 槽位绑定的库视频 id（null = 默认）
+var DEFAULT_VIDEO_URLS = {                              // 内置默认素材（解析时的回退值；base 无默认 = 静态图）
+  base: null,
   happy: VIDEO_URLS.happy,
   reading: VIDEO_URLS.reading,
   nap: VIDEO_URLS.nap
 }
 function setVideoHint(t) { videoHint.textContent = t || '' }
-// 把三个槽位解析成实际 URL 写回 VIDEO_URLS：槽位有绑定 → video_path → fileSrc；
-// 无绑定 / 条目被删 / 文件丢失 → 回退该槽位默认。reactClick/startIdleAction 读的就是 VIDEO_URLS
+// 把槽位解析成实际 URL 写回 VIDEO_URLS：槽位有绑定 → video_path → fileSrc；
+// 无绑定 / 条目被删 / 文件丢失 → 回退该槽位默认。reactClick/startIdleAction/常态循环读的都是 VIDEO_URLS
 function resolveVideoUrls() {
+  VIDEO_URLS.base = null
   VIDEO_URLS.happy = DEFAULT_VIDEO_URLS.happy
   VIDEO_URLS.reading = DEFAULT_VIDEO_URLS.reading
   VIDEO_URLS.nap = DEFAULT_VIDEO_URLS.nap
@@ -2305,8 +2330,11 @@ function resolveVideoUrls() {
       var id = videoSlots[key]
       if (!id) return
       invoke('video_path', { id: id })
-        .then(function (p) { VIDEO_URLS[key] = p ? fileSrc(p) : DEFAULT_VIDEO_URLS[key] })
-        .catch(function () { VIDEO_URLS[key] = DEFAULT_VIDEO_URLS[key] })
+        .then(function (p) {
+          VIDEO_URLS[key] = p ? fileSrc(p) : (DEFAULT_VIDEO_URLS[key] || null)
+          if (key === 'base') applyBaseVideo()   // 常态槽位解析完成，静态态下立即应用
+        })
+        .catch(function () { VIDEO_URLS[key] = DEFAULT_VIDEO_URLS[key] || null })
     })(VIDEO_SLOT_KEYS[i])
   }
 }
@@ -2316,12 +2344,14 @@ function loadVideos() {
     .then(function (d) {
       videoList = d && Array.isArray(d.videos) ? d.videos : []
       var s = d && d.slots ? d.slots : {}
+      videoSlots.base = s.base || null
       videoSlots.happy = s.happy || null
       videoSlots.reading = s.reading || null
       videoSlots.nap = s.nap || null
       renderVideoList()
       rebuildVideoSlotSelects()
       resolveVideoUrls()
+      applyBaseVideo()   // 常态槽位可能变化，静态态下立即应用
     })
     .catch(function () {})
 }
